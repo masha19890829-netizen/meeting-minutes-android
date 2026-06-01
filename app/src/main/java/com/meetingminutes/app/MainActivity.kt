@@ -38,8 +38,10 @@ import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
@@ -694,6 +696,36 @@ private fun DetailDialog(
                 }
                 Text("原始转写", fontWeight = FontWeight.Bold)
                 detail.transcript.forEach { Text("${it.speaker}：${it.text}") }
+                Text("免费AI助手", fontWeight = FontWeight.Bold)
+                Text(
+                    "无需 API Key。先复制整理提示词，再打开 Kimi/豆包免费聊天界面粘贴即可；也可以通过系统分享发给已安装的大模型 App。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(
+                        onClick = { viewModel.copyFreeAiPrompt(context, detail) },
+                        leadingIcon = { Icon(Icons.Default.ContentCopy, "复制提示词") },
+                        label = { Text("复制提示词") }
+                    )
+                    AssistChip(
+                        onClick = { viewModel.shareFreeAiPrompt(context, detail) },
+                        leadingIcon = { Icon(Icons.Default.Share, "分享给AI") },
+                        label = { Text("分享给AI") }
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(
+                        onClick = { viewModel.openKimi(context, detail) },
+                        leadingIcon = { Icon(Icons.Default.OpenInBrowser, "打开Kimi") },
+                        label = { Text("Kimi") }
+                    )
+                    AssistChip(
+                        onClick = { viewModel.openDoubao(context, detail) },
+                        leadingIcon = { Icon(Icons.Default.OpenInBrowser, "打开豆包") },
+                        label = { Text("豆包") }
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IconButton(onClick = { viewModel.copyMarkdown(context, detail) }) {
                         Icon(Icons.Default.ContentCopy, "复制纪要")
