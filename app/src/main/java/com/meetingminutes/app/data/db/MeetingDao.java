@@ -62,6 +62,12 @@ public interface MeetingDao {
     @Query("SELECT * FROM calendar_sync_states WHERE meetingId = :meetingId LIMIT 1")
     CalendarSyncStateEntity getCalendarSyncState(long meetingId);
 
+    @Query("SELECT * FROM document_exports WHERE meetingId = :meetingId")
+    List<DocumentExportEntity> listDocumentExports(long meetingId);
+
+    @Query("DELETE FROM meetings WHERE id = :meetingId")
+    void deleteMeeting(long meetingId);
+
     @Query("DELETE FROM transcript_segments WHERE meetingId = :meetingId")
     void deleteTranscript(long meetingId);
 

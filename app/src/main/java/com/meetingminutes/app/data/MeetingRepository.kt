@@ -10,6 +10,7 @@ import com.meetingminutes.app.data.db.MeetingSummaryEntity
 import com.meetingminutes.app.data.db.TranscriptSegmentEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Calendar
 
 class MeetingRepository(private val dao: MeetingDao) {
@@ -99,6 +100,17 @@ class MeetingRepository(private val dao: MeetingDao) {
         )
     }
 
+    suspend fun deleteMeeting(meetingId: Long) = withContext(Dispatchers.IO) {
+        val meeting = dao.getMeeting(meetingId) ?: return@withContext
+        if (meeting.audioPath.isNotBlank()) {
+            runCatching { File(meeting.audioPath).delete() }
+        }
+        dao.listDocumentExports(meetingId).forEach { export ->
+            runCatching { File(export.path).delete() }
+        }
+        dao.deleteMeeting(meetingId)
+    }
+
     suspend fun saveSummary(meetingId: Long, summary: MeetingSummary, actions: List<ActionItem>) = withContext(Dispatchers.IO) {
         dao.insertSummary(
             MeetingSummaryEntity(
@@ -145,7 +157,10 @@ class MeetingRepository(private val dao: MeetingDao) {
     }
 
     suspend fun buildTranscriptText(meetingId: Long): String = withContext(Dispatchers.IO) {
-        dao.listTranscript(meetingId).joinToString("\n") { it.text }
+        dao.listTranscript(meetingId).joinToString("\n") {
+            val speaker = it.speaker.ifBlank { "发言人" }
+            "$speaker：${it.text}"
+        }
     }
 
     suspend fun saveExport(meetingId: Long, type: String, path: String) = withContext(Dispatchers.IO) {

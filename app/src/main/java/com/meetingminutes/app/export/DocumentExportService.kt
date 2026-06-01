@@ -85,7 +85,7 @@ class DocumentExportService(
             appendLine("时间：$time")
             appendLine()
             appendLine("## 原始转写")
-            detail.transcript.forEach { appendLine(it.text) }
+            detail.transcript.forEach { appendLine("${it.speaker}：${it.text}") }
         }
     }
 
@@ -106,4 +106,3 @@ class DocumentExportService(
         return lines
     }
 }
-

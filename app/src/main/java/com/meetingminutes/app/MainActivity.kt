@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Insights
@@ -484,6 +485,7 @@ private fun DetailDialog(
     onSync: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
+    var confirmDelete by remember(detail.meeting.id) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
@@ -508,7 +510,7 @@ private fun DetailDialog(
                 Text("待办", fontWeight = FontWeight.Bold)
                 if (detail.actions.isEmpty()) Text("暂无") else detail.actions.forEach { Text("• ${it.content}") }
                 Text("原始转写", fontWeight = FontWeight.Bold)
-                detail.transcript.forEach { Text(it.text) }
+                detail.transcript.forEach { Text("${it.speaker}：${it.text}") }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IconButton(onClick = { viewModel.exportMarkdown(context, detail) }) {
                         Icon(Icons.Default.Article, "分享 Markdown")
@@ -528,10 +530,30 @@ private fun DetailDialog(
                             Icon(Icons.Default.EventBusy, "取消日历同步")
                         }
                     }
+                    IconButton(onClick = { confirmDelete = true }) {
+                        Icon(Icons.Default.Delete, "删除会议文档")
+                    }
                 }
             }
         }
     )
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("删除会议文档？") },
+            text = { Text("会删除这条会议、转写、纪要、待办和导出的缓存文件。这个操作不能撤销。") },
+            confirmButton = {
+                Button(onClick = {
+                    confirmDelete = false
+                    viewModel.deleteMeeting(detail.meeting.id)
+                    onDismiss()
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("取消") }
+            }
+        )
+    }
 }
 
 @Composable

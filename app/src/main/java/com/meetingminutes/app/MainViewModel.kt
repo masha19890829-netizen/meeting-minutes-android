@@ -208,6 +208,18 @@ class MainViewModel(application: Application) : ViewModel() {
         }
     }
 
+    fun deleteMeeting(meetingId: Long) {
+        viewModelScope.launch {
+            val detail = repository.getMeetingDetail(meetingId)
+            if (detail?.calendarEventId != null) {
+                runCatching { calendarSyncService.unsync(detail) }
+            }
+            repository.deleteMeeting(meetingId)
+            _uiState.value = _uiState.value.copy(selectedMeeting = null, message = "会议文档已删除")
+            refreshAll()
+        }
+    }
+
     fun regenerateSummary(meetingId: Long) {
         viewModelScope.launch {
             val detail = repository.getMeetingDetail(meetingId) ?: return@launch
@@ -239,10 +251,13 @@ class MainViewModel(application: Application) : ViewModel() {
             var transcript = repository.buildTranscriptText(meetingId)
             if (transcript.isBlank()) {
                 _uiState.value = _uiState.value.copy(recording = _uiState.value.recording.copy(message = "正在本地离线转写"))
-                transcript = speechService.transcribePcmFile(audioFile) { partial ->
+                val lines = speechService.transcribePcmLines(audioFile) { partial ->
                     _uiState.value = _uiState.value.copy(recording = _uiState.value.recording.copy(liveTranscript = partial))
                 }
-                repository.saveTranscriptSegment(meetingId, transcript, 0, endedAt - startedAt)
+                if (lines.isNotEmpty()) {
+                    repository.replaceTranscript(meetingId, lines)
+                    transcript = lines.joinToString("\n") { "${it.speaker}：${it.text}" }
+                }
             }
             if (transcript.isBlank()) {
                 transcript = "录音已保存，但本地识别没有得到可用文字。可以在会议详情里重试，或在更安静的环境下重新录制。"
@@ -278,12 +293,10 @@ class MainViewModel(application: Application) : ViewModel() {
         val audioFile = File(detail.meeting.audioPath)
         if (!audioFile.exists()) return repository.buildTranscriptText(detail.meeting.id)
         updateMessage("正在重新本地识别")
-        val text = speechService.transcribePcmFile(audioFile)
-        if (text.isNotBlank()) {
-            repository.replaceTranscript(
-                detail.meeting.id,
-                listOf(com.meetingminutes.app.data.TranscriptLine(0, 0, detail.meeting.endedAt - detail.meeting.startedAt, "发言人", text, true))
-            )
+        val lines = speechService.transcribePcmLines(audioFile)
+        val text = lines.joinToString("\n") { "${it.speaker}：${it.text}" }
+        if (lines.isNotEmpty()) {
+            repository.replaceTranscript(detail.meeting.id, lines)
         }
         return text.ifBlank { repository.buildTranscriptText(detail.meeting.id) }
     }
