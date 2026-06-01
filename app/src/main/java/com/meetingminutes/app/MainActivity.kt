@@ -70,6 +70,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.meetingminutes.app.data.CloudSettings
@@ -369,6 +370,10 @@ private fun InsightsScreen(state: AppUiState) {
 @Composable
 private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> Unit) {
     var keepAudio by remember(settings) { mutableStateOf(settings.keepAudioAfterSuccess) }
+    var aiEnabled by remember(settings) { mutableStateOf(settings.aiPolishEnabled) }
+    var aiBaseUrl by remember(settings) { mutableStateOf(settings.aiBaseUrl) }
+    var aiApiKey by remember(settings) { mutableStateOf(settings.aiApiKey) }
+    var aiModel by remember(settings) { mutableStateOf(settings.aiModel) }
 
     Column(
         modifier = Modifier
@@ -397,6 +402,47 @@ private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> U
                 Switch(checked = keepAudio, onCheckedChange = { keepAudio = it })
             }
         }
+        CardBlock(title = "可选大模型整理") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("转写后调用外部模型", fontWeight = FontWeight.Medium)
+                    Text("默认关闭。开启后只把文字发给你填写的模型接口，用来整理成更漂亮的会议文档。", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = aiEnabled, onCheckedChange = { aiEnabled = it })
+            }
+            if (aiEnabled) {
+                OutlinedTextField(
+                    value = aiBaseUrl,
+                    onValueChange = { aiBaseUrl = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("接口 Base URL") },
+                    placeholder = { Text("例如：https://你的模型平台/v1") },
+                    singleLine = true
+                )
+                SecretField(
+                    value = aiApiKey,
+                    onValueChange = { aiApiKey = it },
+                    label = "API Key（有的平台可不填）"
+                )
+                OutlinedTextField(
+                    value = aiModel,
+                    onValueChange = { aiModel = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("模型名称") },
+                    placeholder = { Text("填写免费模型的模型 ID") },
+                    singleLine = true
+                )
+                Text(
+                    "不填完整时会继续使用本地规则纪要。外部接口调用失败也不会影响会议保存。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+        }
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = {
@@ -404,7 +450,11 @@ private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> U
                     CloudSettings(
                         transcriptionEngine = settings.transcriptionEngine,
                         summaryEngine = settings.summaryEngine,
-                        keepAudioAfterSuccess = keepAudio
+                        keepAudioAfterSuccess = keepAudio,
+                        aiPolishEnabled = aiEnabled,
+                        aiBaseUrl = aiBaseUrl,
+                        aiApiKey = aiApiKey,
+                        aiModel = aiModel
                     )
                 )
             }
@@ -412,6 +462,18 @@ private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> U
             Text("保存设置")
         }
     }
+}
+
+@Composable
+private fun SecretField(value: String, onValueChange: (String) -> Unit, label: String) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation()
+    )
 }
 
 @Composable

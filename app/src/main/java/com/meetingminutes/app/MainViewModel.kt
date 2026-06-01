@@ -18,8 +18,10 @@ import com.meetingminutes.app.data.MeetingCard
 import com.meetingminutes.app.data.MeetingDetail
 import com.meetingminutes.app.data.MeetingRepository
 import com.meetingminutes.app.data.SecretStore
+import com.meetingminutes.app.network.ExternalDocumentPolishService
 import com.meetingminutes.app.network.LocalMeetingSummaryService
 import com.meetingminutes.app.network.LocalSpeechTranscriptionService
+import com.meetingminutes.app.network.SummaryBundle
 import com.meetingminutes.app.recording.RecordingForegroundService
 import com.meetingminutes.app.recording.RecordingUiState
 import kotlinx.coroutines.Dispatchers
@@ -42,7 +44,7 @@ data class AppUiState(
     val selectedDayMeetings: List<MeetingCard> = emptyList(),
     val insights: List<com.meetingminutes.app.data.InsightReport> = emptyList(),
     val recording: RecordingUiState = RecordingUiState(),
-    val settings: CloudSettings = CloudSettings("离线中文识别", "本地规则纪要", false),
+    val settings: CloudSettings = CloudSettings(),
     val query: String = "",
     val selectedDay: Long = System.currentTimeMillis(),
     val busy: Boolean = false,
@@ -55,6 +57,7 @@ class MainViewModel(application: Application) : ViewModel() {
     private val secretStore: SecretStore = app.appContainer.secretStore
     private val speechService: LocalSpeechTranscriptionService = app.appContainer.speechService
     private val summaryService: LocalMeetingSummaryService = app.appContainer.summaryService
+    private val documentPolishService: ExternalDocumentPolishService = app.appContainer.documentPolishService
     private val calendarSyncService = CalendarSyncService(app, repository)
 
     private val _uiState = MutableStateFlow(AppUiState(settings = secretStore.load()))
@@ -213,7 +216,8 @@ class MainViewModel(application: Application) : ViewModel() {
             } else {
                 repository.buildTranscriptText(meetingId)
             }
-            val bundle = summaryService.summarize(detail.meeting, transcript)
+            updateMessage("正在整理会议文档")
+            val bundle = createSummary(detail.meeting, transcript)
             repository.saveSummary(meetingId, bundle.summary, bundle.actions)
             repository.updateMeetingCompleted(meetingId, detail.meeting.endedAt, "completed", "", bundle.tags)
             refreshAll()
@@ -244,7 +248,8 @@ class MainViewModel(application: Application) : ViewModel() {
                 transcript = "录音已保存，但本地识别没有得到可用文字。可以在会议详情里重试，或在更安静的环境下重新录制。"
                 repository.saveTranscriptSegment(meetingId, transcript, 0, endedAt - startedAt)
             }
-            val bundle = summaryService.summarize(meetingCard, transcript)
+            _uiState.value = _uiState.value.copy(recording = _uiState.value.recording.copy(message = "正在整理会议文档"))
+            val bundle = createSummary(meetingCard, transcript)
             repository.saveSummary(meetingId, bundle.summary, bundle.actions)
             val keepAudio = secretStore.load().keepAudioAfterSuccess
             if (!keepAudio) audioFile.delete()
@@ -262,6 +267,11 @@ class MainViewModel(application: Application) : ViewModel() {
         }
         refreshAll()
         selectMeeting(meetingId)
+    }
+
+    private suspend fun createSummary(meeting: MeetingCard, transcript: String): SummaryBundle {
+        return documentPolishService.polish(meeting, transcript)
+            ?: summaryService.summarize(meeting, transcript)
     }
 
     private suspend fun retryTranscription(detail: MeetingDetail): String {

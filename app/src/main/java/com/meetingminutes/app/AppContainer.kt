@@ -5,6 +5,7 @@ import com.meetingminutes.app.data.MeetingRepository
 import com.meetingminutes.app.data.SecretStore
 import com.meetingminutes.app.data.db.AppDatabase
 import com.meetingminutes.app.export.DocumentExportService
+import com.meetingminutes.app.network.ExternalDocumentPolishService
 import com.meetingminutes.app.network.LocalMeetingSummaryService
 import com.meetingminutes.app.network.LocalSpeechTranscriptionService
 
@@ -14,5 +15,6 @@ class AppContainer(application: Application) {
     val repository = MeetingRepository(database.meetingDao())
     val speechService = LocalSpeechTranscriptionService(application)
     val summaryService = LocalMeetingSummaryService()
+    val documentPolishService = ExternalDocumentPolishService(secretStore)
     val documentExportService = DocumentExportService(application, repository)
 }
