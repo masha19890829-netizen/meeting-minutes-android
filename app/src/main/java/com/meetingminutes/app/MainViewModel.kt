@@ -10,7 +10,6 @@ import android.content.Intent
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import android.net.Uri
 import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
@@ -220,28 +219,6 @@ class MainViewModel(application: Application) : ViewModel() {
         updateMessage("会议待办已复制")
     }
 
-    fun copyFreeAiPrompt(context: Context, detail: MeetingDetail) {
-        copyText(context, "免费大模型整理提示词", freeAiPrompt(detail))
-        updateMessage("AI 整理提示词已复制")
-    }
-
-    fun shareFreeAiPrompt(context: Context, detail: MeetingDetail) {
-        val intent = Intent(Intent.ACTION_SEND)
-            .setType("text/plain")
-            .putExtra(Intent.EXTRA_TEXT, freeAiPrompt(detail))
-        context.startActivity(Intent.createChooser(intent, "发送给免费大模型"))
-    }
-
-    fun openKimi(context: Context, detail: MeetingDetail) {
-        copyFreeAiPrompt(context, detail)
-        openUrl(context, KIMI_URL)
-    }
-
-    fun openDoubao(context: Context, detail: MeetingDetail) {
-        copyFreeAiPrompt(context, detail)
-        openUrl(context, DOUBAO_URL)
-    }
-
     fun syncCalendar() {
         val detail = _uiState.value.selectedMeeting ?: return
         viewModelScope.launch {
@@ -289,23 +266,34 @@ class MainViewModel(application: Application) : ViewModel() {
         }
     }
 
-    fun regenerateSummary(meetingId: Long) {
+    fun generateAiDocument(meetingId: Long) {
         viewModelScope.launch {
             val detail = repository.getMeetingDetail(meetingId) ?: return@launch
+            _uiState.value = _uiState.value.copy(busy = true, message = "正在生成会议文档")
             val transcript = if (detail.meeting.audioPath.isNotBlank() && detail.meeting.status == "needs_retry") {
                 retryTranscription(detail)
             } else {
                 repository.buildTranscriptText(meetingId)
             }
-            updateMessage("正在整理会议文档")
-            val bundle = createSummary(detail.meeting, transcript)
-            repository.saveSummary(meetingId, bundle.summary, bundle.actions)
-            repository.updateMeetingCompleted(meetingId, detail.meeting.endedAt, "completed", "", bundle.tags)
-            refreshAll()
-            selectMeeting(meetingId)
-            updateMessage("会议纪要已重新生成")
+            runCatching {
+                val (bundle, usedKimi) = createSummaryWithMode(detail.meeting, transcript)
+                repository.saveSummary(meetingId, bundle.summary, bundle.actions)
+                repository.updateMeetingCompleted(meetingId, detail.meeting.endedAt, "completed", "", bundle.tags)
+                refreshAll()
+                selectMeeting(meetingId)
+                val mode = when {
+                    usedKimi -> "Kimi 文档已生成"
+                    secretStore.load().canUseExternalAi -> "Kimi 暂不可用，已用本地生成"
+                    else -> "本地文档已生成"
+                }
+                _uiState.value = _uiState.value.copy(busy = false, message = mode)
+            }.onFailure {
+                _uiState.value = _uiState.value.copy(busy = false, message = it.message ?: "文档生成失败")
+            }
         }
     }
+
+    fun regenerateSummary(meetingId: Long) = generateAiDocument(meetingId)
 
     private suspend fun processRecording(
         meetingId: Long,
@@ -365,8 +353,16 @@ class MainViewModel(application: Application) : ViewModel() {
     }
 
     private suspend fun createSummary(meeting: MeetingCard, transcript: String): SummaryBundle {
-        return documentPolishService.polish(meeting, transcript)
-            ?: summaryService.summarize(meeting, transcript)
+        return createSummaryWithMode(meeting, transcript).first
+    }
+
+    private suspend fun createSummaryWithMode(meeting: MeetingCard, transcript: String): Pair<SummaryBundle, Boolean> {
+        val polished = documentPolishService.polish(meeting, transcript)
+        return if (polished != null) {
+            polished to true
+        } else {
+            summaryService.summarize(meeting, transcript) to false
+        }
     }
 
     private suspend fun retryTranscription(detail: MeetingDetail): String {
@@ -409,39 +405,6 @@ class MainViewModel(application: Application) : ViewModel() {
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
     }
 
-    private fun openUrl(context: Context, url: String) {
-        runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }.onFailure {
-            updateMessage("无法打开浏览器，提示词已复制")
-        }
-    }
-
-    private fun freeAiPrompt(detail: MeetingDetail): String {
-        val transcript = detail.transcript.joinToString("\n") { "${it.speaker}：${it.text}" }
-        val actions = detail.actions.joinToString("\n") { "- ${it.owner}：${it.content}" }.ifBlank { "暂无" }
-        return """
-            请你作为专业会议纪要助手，把下面这场会议整理成一份可直接发给团队的中文文档。
-
-            输出格式请包含：
-            1. 会议摘要
-            2. 关键结论/决策
-            3. 待办事项表格（负责人、事项、截止时间、状态）
-            4. 风险点
-            5. 后续需要确认的问题
-            6. 可直接复制的 Markdown 版本
-
-            会议标题：${detail.meeting.title}
-            会议时间：${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(detail.meeting.startedAt))}
-
-            APP 已提取的待办：
-            $actions
-
-            会议转写：
-            $transcript
-        """.trimIndent()
-    }
-
     private fun agendaForTranscript(agenda: String): String {
         return "会前目标/议程：\n${agenda.trim()}"
     }
@@ -459,8 +422,6 @@ class MainViewModel(application: Application) : ViewModel() {
 
     companion object {
         private const val SAMPLE_RATE = 16000
-        private const val KIMI_URL = "https://www.kimi.com/"
-        private const val DOUBAO_URL = "https://www.doubao.com/"
 
         fun requiredRecordingPermissions(): Array<String> {
             val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)

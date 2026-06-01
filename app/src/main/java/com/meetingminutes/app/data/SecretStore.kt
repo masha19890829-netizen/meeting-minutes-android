@@ -13,20 +13,22 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 const val DEFAULT_UPDATE_API_URL = "https://api.github.com/repos/masha19890829-netizen/meeting-minutes-android/releases/latest"
+const val DEFAULT_KIMI_BASE_URL = "https://api.moonshot.ai/v1"
+const val DEFAULT_KIMI_MODEL = "kimi-k2.6"
 
 data class CloudSettings(
     val transcriptionEngine: String = "离线中文识别",
     val summaryEngine: String = "本地规则纪要",
     val keepAudioAfterSuccess: Boolean = false,
     val aiPolishEnabled: Boolean = false,
-    val aiBaseUrl: String = "",
+    val aiBaseUrl: String = DEFAULT_KIMI_BASE_URL,
     val aiApiKey: String = "",
-    val aiModel: String = "",
+    val aiModel: String = DEFAULT_KIMI_MODEL,
     val updateChecksEnabled: Boolean = true,
     val updateApiUrl: String = DEFAULT_UPDATE_API_URL
 ) {
     val isFreeMode: Boolean get() = true
-    val canUseExternalAi: Boolean get() = aiPolishEnabled && aiBaseUrl.isNotBlank() && aiModel.isNotBlank()
+    val canUseExternalAi: Boolean get() = aiPolishEnabled && aiBaseUrl.isNotBlank() && aiModel.isNotBlank() && aiApiKey.isNotBlank()
 }
 
 class SecretStore(context: Context) {
@@ -38,9 +40,9 @@ class SecretStore(context: Context) {
             summaryEngine = prefs.getString("summary_engine", "本地规则纪要") ?: "本地规则纪要",
             keepAudioAfterSuccess = prefs.getBoolean("keep_audio_after_success", false),
             aiPolishEnabled = prefs.getBoolean("ai_polish_enabled", false),
-            aiBaseUrl = prefs.getString("ai_base_url", "") ?: "",
+            aiBaseUrl = (prefs.getString("ai_base_url", DEFAULT_KIMI_BASE_URL) ?: DEFAULT_KIMI_BASE_URL).ifBlank { DEFAULT_KIMI_BASE_URL },
             aiApiKey = decryptPref("ai_api_key"),
-            aiModel = prefs.getString("ai_model", "") ?: "",
+            aiModel = (prefs.getString("ai_model", DEFAULT_KIMI_MODEL) ?: DEFAULT_KIMI_MODEL).ifBlank { DEFAULT_KIMI_MODEL },
             updateChecksEnabled = prefs.getBoolean("update_checks_enabled", true),
             updateApiUrl = prefs.getString("update_api_url", DEFAULT_UPDATE_API_URL) ?: DEFAULT_UPDATE_API_URL
         )
@@ -52,9 +54,9 @@ class SecretStore(context: Context) {
             .putString("summary_engine", settings.summaryEngine.ifBlank { "本地规则纪要" })
             .putBoolean("keep_audio_after_success", settings.keepAudioAfterSuccess)
             .putBoolean("ai_polish_enabled", settings.aiPolishEnabled)
-            .putString("ai_base_url", settings.aiBaseUrl.trim().trimEnd('/'))
+            .putString("ai_base_url", settings.aiBaseUrl.trim().trimEnd('/').ifBlank { DEFAULT_KIMI_BASE_URL })
             .putString("ai_api_key", encrypt(settings.aiApiKey))
-            .putString("ai_model", settings.aiModel.trim())
+            .putString("ai_model", settings.aiModel.trim().ifBlank { DEFAULT_KIMI_MODEL })
             .putBoolean("update_checks_enabled", settings.updateChecksEnabled)
             .putString("update_api_url", settings.updateApiUrl.trim())
             .apply()

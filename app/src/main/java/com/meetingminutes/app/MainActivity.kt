@@ -3,60 +3,66 @@ package com.meetingminutes.app
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -80,8 +86,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.meetingminutes.app.data.CloudSettings
 import com.meetingminutes.app.data.ActionBoardItem
+import com.meetingminutes.app.data.CloudSettings
+import com.meetingminutes.app.data.DEFAULT_KIMI_BASE_URL
+import com.meetingminutes.app.data.DEFAULT_KIMI_MODEL
 import com.meetingminutes.app.data.MeetingCard
 import com.meetingminutes.app.data.MeetingDetail
 import java.text.SimpleDateFormat
@@ -121,15 +129,26 @@ private val meetingTemplates = listOf(
     MeetingTemplate("1对1", "1对1沟通", "1. 当前状态\n2. 卡点和压力\n3. 需要的资源\n4. 下一步行动")
 )
 
+private val AppBackground = Color(0xFFF5F7FA)
+private val AppSurface = Color(0xFFFFFFFF)
+private val AppSurfaceSoft = Color(0xFFEAF2F1)
+private val AppTextMuted = Color(0xFF64748B)
+private val AppLine = Color(0xFFE2E8F0)
+private val AppDanger = Color(0xFFB42318)
+private val AppWarning = Color(0xFF9A6700)
+
 @Composable
 private fun MeetingMinutesTheme(content: @Composable () -> Unit) {
     val colors = lightColorScheme(
-        primary = Color(0xFF1F6B5B),
-        secondary = Color(0xFF9B6A2F),
-        tertiary = Color(0xFFE0B84D),
-        background = Color(0xFFF7F3EA),
-        surface = Color(0xFFFFFCF5),
-        surfaceVariant = Color(0xFFE7EFEA)
+        primary = Color(0xFF0F766E),
+        onPrimary = Color.White,
+        secondary = Color(0xFF475569),
+        tertiary = Color(0xFFC2410C),
+        background = AppBackground,
+        surface = AppSurface,
+        surfaceVariant = AppSurfaceSoft,
+        outline = AppLine,
+        error = AppDanger
     )
     MaterialTheme(colorScheme = colors, typography = MaterialTheme.typography, content = content)
 }
@@ -162,13 +181,19 @@ private fun MeetingMinutesApp(viewModel: MainViewModel) {
                 title = {
                     Column {
                         Text("会议库", fontWeight = FontWeight.Bold)
-                        if (state.message.isNotBlank()) Text(state.message, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                        Text(
+                            state.message.ifBlank { screen.title },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppTextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = AppSurface) {
                 Screen.values().forEach { item ->
                     NavigationBarItem(
                         selected = item == screen,
@@ -177,7 +202,7 @@ private fun MeetingMinutesApp(viewModel: MainViewModel) {
                             Icon(
                                 imageVector = when (item) {
                                     Screen.Record -> Icons.Default.Mic
-                                    Screen.Library -> Icons.Default.LibraryBooks
+                                    Screen.Library -> Icons.AutoMirrored.Filled.LibraryBooks
                                     Screen.Calendar -> Icons.Default.CalendarMonth
                                     Screen.Insights -> Icons.Default.Insights
                                     Screen.Settings -> Icons.Default.Settings
@@ -242,7 +267,7 @@ private fun MeetingMinutesApp(viewModel: MainViewModel) {
                     Text(
                         "会打开下载页面。安装时如果手机提示未知来源，按系统提示允许本次安装即可。",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.secondary
+                        color = AppTextMuted
                     )
                 }
             },
@@ -269,99 +294,96 @@ private fun RecordScreen(
     var agenda by remember { mutableStateOf("") }
     var backgroundSafe by remember { mutableStateOf(true) }
     var confirmStop by remember { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
+    val isRecording = state.recording.isRecording
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        OutlinedTextField(
-            value = title,
-            onValueChange = { title = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("会议标题") },
-            singleLine = true
-        )
-        Spacer(Modifier.height(12.dp))
-        CardBlock(title = "会议模板") {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                meetingTemplates.take(2).forEach { template ->
-                    AssistChip(
-                        onClick = {
-                            title = "${template.titlePrefix} ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date())}"
-                            agenda = template.agenda
-                        },
-                        label = { Text(template.name) }
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                meetingTemplates.drop(2).forEach { template ->
-                    AssistChip(
-                        onClick = {
-                            title = "${template.titlePrefix} ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date())}"
-                            agenda = template.agenda
-                        },
-                        label = { Text(template.name) }
-                    )
-                }
-            }
-            OutlinedTextField(
-                value = agenda,
-                onValueChange = { agenda = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("会前目标/议程") },
-                minLines = 3,
-                maxLines = 5
+        item {
+            DashboardStrip(
+                meetings = state.meetings.size,
+                pendingActions = state.actionBoard.count { !it.action.done },
+                aiMode = aiModeLabel(state.settings)
             )
         }
-        Spacer(Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("后台持续录音", fontWeight = FontWeight.Medium)
-                Text("锁屏、切应用后继续录，停止前会二次确认", style = MaterialTheme.typography.bodySmall)
-            }
-            Switch(checked = backgroundSafe, onCheckedChange = { backgroundSafe = it }, enabled = !state.recording.isRecording)
-        }
-        Spacer(Modifier.height(28.dp))
-        Box(
-            modifier = Modifier
-                .size(172.dp)
-                .clip(CircleShape)
-                .background(if (state.recording.isRecording) Color(0xFFE26D5C) else MaterialTheme.colorScheme.primary),
-            contentAlignment = Alignment.Center
-        ) {
-            FilledIconButton(
-                modifier = Modifier.size(124.dp),
-                onClick = { if (state.recording.isRecording) confirmStop = true else onStart(title, backgroundSafe, agenda) }
+        item {
+            Panel(
+                title = "新会议",
+                subtitle = if (isRecording) "录音进行中" else "选择模板或直接命名",
+                trailing = { StatusPill(if (backgroundSafe) "后台保护" else "前台录音") }
             ) {
-                Icon(
-                    imageVector = if (state.recording.isRecording) Icons.Default.Stop else Icons.Default.Mic,
-                    contentDescription = if (state.recording.isRecording) "停止录音" else "开始录音",
-                    modifier = Modifier.size(52.dp)
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("会议标题") },
+                    singleLine = true,
+                    enabled = !isRecording
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    meetingTemplates.take(2).forEach { template ->
+                        AssistChip(
+                            onClick = {
+                                title = "${template.titlePrefix} ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date())}"
+                                agenda = template.agenda
+                            },
+                            label = { Text(template.name) },
+                            enabled = !isRecording
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    meetingTemplates.drop(2).forEach { template ->
+                        AssistChip(
+                            onClick = {
+                                title = "${template.titlePrefix} ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date())}"
+                                agenda = template.agenda
+                            },
+                            label = { Text(template.name) },
+                            enabled = !isRecording
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = agenda,
+                    onValueChange = { agenda = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("会前目标/议程") },
+                    minLines = 3,
+                    maxLines = 5,
+                    enabled = !isRecording
+                )
+                SwitchRow(
+                    title = "后台持续录音",
+                    subtitle = "锁屏、切应用后继续录",
+                    checked = backgroundSafe,
+                    enabled = !isRecording,
+                    onCheckedChange = { backgroundSafe = it }
                 )
             }
         }
-        Spacer(Modifier.height(18.dp))
-        Text(formatDuration(state.recording.durationMs), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text(state.recording.message, color = MaterialTheme.colorScheme.secondary)
-        Spacer(Modifier.height(16.dp))
-        LevelBar(state.recording.level)
-        Spacer(Modifier.height(18.dp))
-        CardBlock(title = "现场转写") {
-            Text(state.recording.liveTranscript.ifBlank { "免费版会在停止录音后用手机本地模型转写并生成纪要。录音过程中可以锁屏或切到其他应用。" })
+        item {
+            RecorderPanel(
+                state = state,
+                onClick = { if (isRecording) confirmStop = true else onStart(title, backgroundSafe, agenda) }
+            )
+        }
+        item {
+            Panel(title = "现场转写", subtitle = if (isRecording) "结束后生成文档" else "本地离线识别") {
+                Text(
+                    state.recording.liveTranscript.ifBlank { "录音结束后会在 APP 内转文字、识别角色、生成会议文档。" },
+                    color = if (state.recording.liveTranscript.isBlank()) AppTextMuted else MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
     }
     if (confirmStop) {
         AlertDialog(
             onDismissRequest = { confirmStop = false },
             title = { Text("停止录音？") },
-            text = { Text("停止后会在手机本地转写，并自动生成会议纪要。") },
+            text = { Text("停止后会开始转写，并在 APP 内生成会议文档。") },
             confirmButton = {
                 Button(onClick = {
                     confirmStop = false
@@ -376,32 +398,106 @@ private fun RecordScreen(
 }
 
 @Composable
-private fun LibraryScreen(state: AppUiState, viewModel: MainViewModel) {
-    Row(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(16.dp)
-        ) {
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = viewModel::setQuery,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("搜索会议") },
-                singleLine = true
-            )
-            Spacer(Modifier.height(12.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(state.meetings, key = { it.id }) { meeting ->
-                    MeetingRow(meeting, selected = state.selectedMeeting?.meeting?.id == meeting.id) {
-                        viewModel.selectMeeting(meeting.id)
+private fun DashboardStrip(meetings: Int, pendingActions: Int, aiMode: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        StatTile("会议", meetings.toString(), Modifier.weight(1f))
+        StatTile("待办", pendingActions.toString(), Modifier.weight(1f))
+        StatTile("AI", aiMode, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun StatTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        color = AppSurface,
+        border = BorderStroke(1.dp, AppLine)
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = AppTextMuted)
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun RecorderPanel(state: AppUiState, onClick: () -> Unit) {
+    val isRecording = state.recording.isRecording
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (isRecording) Color(0xFFFFF1F0) else AppSurface,
+        border = BorderStroke(1.dp, if (isRecording) Color(0xFFFECACA) else AppLine),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(136.dp)
+                        .clip(CircleShape)
+                        .background(if (isRecording) Color(0xFFDC2626) else MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    FilledIconButton(
+                        modifier = Modifier.size(94.dp),
+                        onClick = onClick
+                    ) {
+                        Icon(
+                            imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
+                            contentDescription = if (isRecording) "停止录音" else "开始录音",
+                            modifier = Modifier.size(42.dp)
+                        )
                     }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(formatDuration(state.recording.durationMs), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(if (isRecording) "正在录音" else "准备开始", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(state.recording.message.ifBlank { "点击麦克风开始" }, style = MaterialTheme.typography.bodySmall, color = AppTextMuted)
+                }
+            }
+            LevelBar(state.recording.level)
+        }
+    }
+}
+
+@Composable
+private fun LibraryScreen(state: AppUiState, viewModel: MainViewModel) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedTextField(
+            value = state.query,
+            onValueChange = viewModel::setQuery,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("搜索会议") },
+            leadingIcon = { Icon(Icons.Default.Search, "搜索会议") },
+            singleLine = true
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            StatTile("全部", state.meetings.size.toString(), Modifier.weight(1f))
+            StatTile("已完成", state.meetings.count { it.status == "completed" }.toString(), Modifier.weight(1f))
+            StatTile("可重试", state.meetings.count { it.status == "needs_retry" }.toString(), Modifier.weight(1f))
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(state.meetings, key = { it.id }) { meeting ->
+                MeetingRow(meeting, selected = state.selectedMeeting?.meeting?.id == meeting.id) {
+                    viewModel.selectMeeting(meeting.id)
                 }
             }
         }
     }
     state.selectedMeeting?.let { detail ->
-        DetailDialog(detail = detail, viewModel = viewModel, onDismiss = { viewModel.selectMeeting(0) })
+        DetailDialog(
+            detail = detail,
+            busy = state.busy,
+            aiMode = aiModeLabel(state.settings),
+            viewModel = viewModel,
+            onDismiss = { viewModel.selectMeeting(0) }
+        )
     }
 }
 
@@ -410,20 +506,30 @@ private fun CalendarScreen(state: AppUiState, viewModel: MainViewModel, onSync: 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         WeekStrip(selectedDay = state.selectedDay, onSelect = viewModel::selectDay)
-        Spacer(Modifier.height(14.dp))
-        Text("当天会议", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(state.selectedDayMeetings, key = { it.id }) { meeting ->
-                MeetingRow(meeting, selected = false) { viewModel.selectMeeting(meeting.id) }
+        SectionHeader("当天会议", "${state.selectedDayMeetings.size} 条")
+        if (state.selectedDayMeetings.isEmpty()) {
+            EmptyState("这天还没有会议")
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(state.selectedDayMeetings, key = { it.id }) { meeting ->
+                    MeetingRow(meeting, selected = false) { viewModel.selectMeeting(meeting.id) }
+                }
             }
         }
     }
     state.selectedMeeting?.let { detail ->
-        DetailDialog(detail = detail, viewModel = viewModel, onDismiss = { viewModel.selectMeeting(0) }, onSync = onSync)
+        DetailDialog(
+            detail = detail,
+            busy = state.busy,
+            aiMode = aiModeLabel(state.settings),
+            viewModel = viewModel,
+            onDismiss = { viewModel.selectMeeting(0) },
+            onSync = onSync
+        )
     }
 }
 
@@ -432,24 +538,31 @@ private fun WorkbenchScreen(state: AppUiState, viewModel: MainViewModel) {
     val pendingActions = state.actionBoard.filterNot { it.action.done }
     val completedActions = state.actionBoard.filter { it.action.done }.take(4)
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            CardBlock(title = "待办工作台") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                StatTile("待办", pendingActions.size.toString(), Modifier.weight(1f))
+                StatTile("已完成", state.actionBoard.count { it.action.done }.toString(), Modifier.weight(1f))
+                StatTile("洞察", state.insights.size.toString(), Modifier.weight(1f))
+            }
+        }
+        item {
+            Panel(title = "行动项", subtitle = "跨会议待办") {
                 if (pendingActions.isEmpty()) {
-                    Text("暂无未完成待办")
+                    EmptyState("暂无未完成待办")
                 } else {
                     pendingActions.take(12).forEach { item ->
                         ActionBoardRow(item = item, onCheckedChange = { checked ->
                             viewModel.toggleActionDone(item.action.id, checked)
                         })
+                        HorizontalDivider(color = AppLine)
                     }
                 }
                 if (completedActions.isNotEmpty()) {
-                    Text("已完成", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    SectionHeader("最近完成", "")
                     completedActions.forEach { item ->
                         ActionBoardRow(item = item, onCheckedChange = { checked ->
                             viewModel.toggleActionDone(item.action.id, checked)
@@ -459,13 +572,12 @@ private fun WorkbenchScreen(state: AppUiState, viewModel: MainViewModel) {
             }
         }
         item {
-            CardBlock(title = "会议洞察") {
+            Panel(title = "会议洞察", subtitle = "自动归纳") {
                 if (state.insights.isEmpty()) {
-                    Text("暂无洞察")
+                    EmptyState("暂无洞察")
                 } else {
                     state.insights.take(3).forEach { insight ->
-                        Text(insight.title, fontWeight = FontWeight.Bold)
-                        Text(insight.content, style = MaterialTheme.typography.bodySmall)
+                        InsightRow(title = insight.title, content = insight.content)
                     }
                 }
             }
@@ -486,13 +598,14 @@ private fun ActionBoardRow(item: ActionBoardItem, onCheckedChange: (Boolean) -> 
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(top = 10.dp)
+                .padding(top = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Text(item.action.content, fontWeight = if (item.action.done) FontWeight.Normal else FontWeight.Medium)
             Text(
                 "${item.action.owner} · ${item.meetingTitle} · ${formatDate(item.meetingStartedAt)}",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary
+                color = AppTextMuted
             )
         }
     }
@@ -523,117 +636,97 @@ private fun SettingsScreen(
         updateApiUrl = updateApiUrl
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        CardBlock(title = "免费本地模式") {
-            Text("转写：${settings.transcriptionEngine}")
-            Text("纪要：${settings.summaryEngine}")
-            Text(
-                "不需要 OpenAI、不需要充值。录音结束后会在手机本地转写，纪要由本地规则整理。第一次识别会解压离线模型，可能稍慢。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("识别成功后保留音频", fontWeight = FontWeight.Medium)
-                    Text("关闭时会自动删除原始录音，节省空间", style = MaterialTheme.typography.bodySmall)
-                }
-                Switch(checked = keepAudio, onCheckedChange = { keepAudio = it })
-            }
-        }
-        CardBlock(title = "可选大模型整理") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("转写后调用外部模型", fontWeight = FontWeight.Medium)
-                    Text("默认关闭。开启后只把文字发给你填写的模型接口，用来整理成更漂亮的会议文档。", style = MaterialTheme.typography.bodySmall)
-                }
-                Switch(checked = aiEnabled, onCheckedChange = { aiEnabled = it })
-            }
-            if (aiEnabled) {
-                OutlinedTextField(
-                    value = aiBaseUrl,
-                    onValueChange = { aiBaseUrl = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("接口 Base URL") },
-                    placeholder = { Text("例如：https://你的模型平台/v1") },
-                    singleLine = true
-                )
-                SecretField(
-                    value = aiApiKey,
-                    onValueChange = { aiApiKey = it },
-                    label = "API Key（有的平台可不填）"
-                )
-                OutlinedTextField(
-                    value = aiModel,
-                    onValueChange = { aiModel = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("模型名称") },
-                    placeholder = { Text("填写免费模型的模型 ID") },
-                    singleLine = true
-                )
-                Text(
-                    "不填完整时会继续使用本地规则纪要。外部接口调用失败也不会影响会议保存。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary
+        item {
+            Panel(title = "本地模式", subtitle = "免费使用") {
+                SettingsLine("转写", settings.transcriptionEngine)
+                SettingsLine("纪要", settings.summaryEngine)
+                SwitchRow(
+                    title = "识别成功后保留音频",
+                    subtitle = "关闭时自动清理原始录音",
+                    checked = keepAudio,
+                    onCheckedChange = { keepAudio = it }
                 )
             }
         }
-        CardBlock(title = "应用更新") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("启动时检查 GitHub 新版本", fontWeight = FontWeight.Medium)
-                    Text("有新 APK 时会弹窗提示，不会自动强制安装。", style = MaterialTheme.typography.bodySmall)
+        item {
+            Panel(title = "Kimi 后台整理", subtitle = aiModeLabel(currentSettings())) {
+                SwitchRow(
+                    title = "启用 Kimi API",
+                    subtitle = "详情页会在 APP 内直接生成文档",
+                    checked = aiEnabled,
+                    onCheckedChange = { aiEnabled = it }
+                )
+                if (aiEnabled) {
+                    OutlinedTextField(
+                        value = aiBaseUrl,
+                        onValueChange = { aiBaseUrl = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("接口 Base URL") },
+                        placeholder = { Text(DEFAULT_KIMI_BASE_URL) },
+                        singleLine = true
+                    )
+                    SecretField(
+                        value = aiApiKey,
+                        onValueChange = { aiApiKey = it },
+                        label = "Kimi API Key"
+                    )
+                    OutlinedTextField(
+                        value = aiModel,
+                        onValueChange = { aiModel = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("模型名称") },
+                        placeholder = { Text(DEFAULT_KIMI_MODEL) },
+                        singleLine = true
+                    )
+                    Text(
+                        "Key 不会写进 APK，只保存在手机本地加密设置里。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppTextMuted
+                    )
                 }
-                Switch(checked = updateEnabled, onCheckedChange = { updateEnabled = it })
             }
-            OutlinedTextField(
-                value = updateApiUrl,
-                onValueChange = { updateApiUrl = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("GitHub 更新地址") },
-                placeholder = { Text("GitHub Releases latest API 地址") },
-                minLines = 2,
-                maxLines = 3
-            )
-            Text(
-                "默认指向 masha19890829-netizen/meeting-minutes-android 的 GitHub Releases。以后发布新版时，Release 说明里写 versionCode: 更大的数字，并上传 APK。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary
-            )
+        }
+        item {
+            Panel(title = "应用更新", subtitle = "GitHub Releases") {
+                SwitchRow(
+                    title = "启动时检查新版本",
+                    subtitle = "发现新 APK 时弹窗提示",
+                    checked = updateEnabled,
+                    onCheckedChange = { updateEnabled = it }
+                )
+                OutlinedTextField(
+                    value = updateApiUrl,
+                    onValueChange = { updateApiUrl = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("更新地址") },
+                    minLines = 2,
+                    maxLines = 3
+                )
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        onSave(currentSettings())
+                        onCheckUpdate()
+                    }
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "检查更新")
+                    Spacer(Modifier.width(8.dp))
+                    Text("保存并检查更新")
+                }
+            }
+        }
+        item {
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    onSave(currentSettings())
-                    onCheckUpdate()
-                }
+                onClick = { onSave(currentSettings()) }
             ) {
-                Text("保存并检查更新")
+                Text("保存设置")
             }
-        }
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = {
-                onSave(currentSettings())
-            }
-        ) {
-            Text("保存设置")
         }
     }
 }
@@ -653,6 +746,8 @@ private fun SecretField(value: String, onValueChange: (String) -> Unit, label: S
 @Composable
 private fun DetailDialog(
     detail: MeetingDetail,
+    busy: Boolean,
+    aiMode: String,
     viewModel: MainViewModel,
     onDismiss: () -> Unit,
     onSync: (() -> Unit)? = null
@@ -662,98 +757,144 @@ private fun DetailDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
-        title = { Text(detail.meeting.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(detail.meeting.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusPill(statusLabel(detail.meeting.status))
+                    StatusPill(formatDate(detail.meeting.startedAt))
+                }
+            }
+        },
         text = {
             Column(
                 modifier = Modifier
-                    .height(520.dp)
+                    .heightIn(max = 560.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AssistChip(onClick = {}, label = { Text(detail.meeting.status) })
-                    AssistChip(onClick = {}, label = { Text(formatDate(detail.meeting.startedAt)) })
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    onClick = { viewModel.generateAiDocument(detail.meeting.id) }
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = "AI生成文档")
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (busy) "正在生成" else "AI生成文档")
                 }
-                detail.summary?.let {
-                    Text("摘要", fontWeight = FontWeight.Bold)
-                    Text(it.summary)
-                    Text("关键决策", fontWeight = FontWeight.Bold)
-                    Text(it.decisions.ifBlank { "暂无" })
+                Text("当前：$aiMode", style = MaterialTheme.typography.bodySmall, color = AppTextMuted)
+
+                detail.summary?.let { summary ->
+                    DetailSection("会议文档") {
+                        Text(summary.summary)
+                        Text("关键决策", fontWeight = FontWeight.SemiBold)
+                        Text(summary.decisions.ifBlank { "暂无" }, color = if (summary.decisions.isBlank()) AppTextMuted else MaterialTheme.colorScheme.onSurface)
+                        Text("风险点", fontWeight = FontWeight.SemiBold)
+                        Text(summary.risks.ifBlank { "暂无" }, color = if (summary.risks.isBlank()) AppTextMuted else MaterialTheme.colorScheme.onSurface)
+                        Text("后续问题", fontWeight = FontWeight.SemiBold)
+                        Text(summary.openQuestions.ifBlank { "暂无" }, color = if (summary.openQuestions.isBlank()) AppTextMuted else MaterialTheme.colorScheme.onSurface)
+                    }
+                } ?: DetailSection("会议文档") {
+                    Text("还没有文档，点击上方按钮生成。", color = AppTextMuted)
                 }
-                Text("待办", fontWeight = FontWeight.Bold)
-                if (detail.actions.isEmpty()) {
-                    Text("暂无")
-                } else {
-                    detail.actions.forEach { action ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = action.done,
-                                onCheckedChange = { checked -> viewModel.toggleActionDone(action.id, checked) }
-                            )
-                            Text("${action.owner}：${action.content}", modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-                Text("原始转写", fontWeight = FontWeight.Bold)
-                detail.transcript.forEach { Text("${it.speaker}：${it.text}") }
-                Text("免费AI助手", fontWeight = FontWeight.Bold)
-                Text(
-                    "无需 API Key。先复制整理提示词，再打开 Kimi/豆包免费聊天界面粘贴即可；也可以通过系统分享发给已安装的大模型 App。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AssistChip(
-                        onClick = { viewModel.copyFreeAiPrompt(context, detail) },
-                        leadingIcon = { Icon(Icons.Default.ContentCopy, "复制提示词") },
-                        label = { Text("复制提示词") }
-                    )
-                    AssistChip(
-                        onClick = { viewModel.shareFreeAiPrompt(context, detail) },
-                        leadingIcon = { Icon(Icons.Default.Share, "分享给AI") },
-                        label = { Text("分享给AI") }
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AssistChip(
-                        onClick = { viewModel.openKimi(context, detail) },
-                        leadingIcon = { Icon(Icons.Default.OpenInBrowser, "打开Kimi") },
-                        label = { Text("Kimi") }
-                    )
-                    AssistChip(
-                        onClick = { viewModel.openDoubao(context, detail) },
-                        leadingIcon = { Icon(Icons.Default.OpenInBrowser, "打开豆包") },
-                        label = { Text("豆包") }
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(onClick = { viewModel.copyMarkdown(context, detail) }) {
-                        Icon(Icons.Default.ContentCopy, "复制纪要")
-                    }
-                    IconButton(onClick = { viewModel.copyActions(context, detail) }) {
-                        Icon(Icons.Default.Description, "复制待办")
-                    }
-                    IconButton(onClick = { viewModel.exportMarkdown(context, detail) }) {
-                        Icon(Icons.Default.Article, "分享 Markdown")
-                    }
-                    IconButton(onClick = { viewModel.exportPdf(context, detail) }) {
-                        Icon(Icons.Default.PictureAsPdf, "分享 PDF")
-                    }
-                    IconButton(onClick = { viewModel.regenerateSummary(detail.meeting.id) }) {
-                        Icon(Icons.Default.Refresh, "重新总结")
-                    }
-                    if (detail.calendarEventId == null) {
-                        IconButton(onClick = { onSync?.invoke() ?: viewModel.syncCalendar() }) {
-                            Icon(Icons.Default.CloudSync, "同步日历")
-                        }
+
+                DetailSection("待办") {
+                    if (detail.actions.isEmpty()) {
+                        Text("暂无待办", color = AppTextMuted)
                     } else {
-                        IconButton(onClick = viewModel::unsyncCalendar) {
-                            Icon(Icons.Default.EventBusy, "取消日历同步")
+                        detail.actions.forEach { action ->
+                            Row(verticalAlignment = Alignment.Top) {
+                                Checkbox(
+                                    checked = action.done,
+                                    onCheckedChange = { checked -> viewModel.toggleActionDone(action.id, checked) }
+                                )
+                                Column(
+                                    Modifier
+                                        .weight(1f)
+                                        .padding(top = 10.dp)
+                                ) {
+                                    Text(action.content)
+                                    Text(action.owner, style = MaterialTheme.typography.bodySmall, color = AppTextMuted)
+                                }
+                            }
                         }
                     }
-                    IconButton(onClick = { confirmDelete = true }) {
-                        Icon(Icons.Default.Delete, "删除会议文档")
+                }
+
+                DetailSection("原始转写") {
+                    if (detail.transcript.isEmpty()) {
+                        Text("暂无转写", color = AppTextMuted)
+                    } else {
+                        detail.transcript.forEach { line ->
+                            Text("${line.speaker}：${line.text}")
+                        }
                     }
+                }
+
+                DetailSection("导出与同步") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        ActionChipButton(
+                            text = "复制纪要",
+                            icon = Icons.Default.ContentCopy,
+                            modifier = Modifier.weight(1f),
+                            onClick = { viewModel.copyMarkdown(context, detail) }
+                        )
+                        ActionChipButton(
+                            text = "复制待办",
+                            icon = Icons.Default.Checklist,
+                            modifier = Modifier.weight(1f),
+                            onClick = { viewModel.copyActions(context, detail) }
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        ActionChipButton(
+                            text = "Markdown",
+                            icon = Icons.AutoMirrored.Filled.Article,
+                            modifier = Modifier.weight(1f),
+                            onClick = { viewModel.exportMarkdown(context, detail) }
+                        )
+                        ActionChipButton(
+                            text = "PDF",
+                            icon = Icons.Default.PictureAsPdf,
+                            modifier = Modifier.weight(1f),
+                            onClick = { viewModel.exportPdf(context, detail) }
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        ActionChipButton(
+                            text = "重新生成",
+                            icon = Icons.Default.Refresh,
+                            modifier = Modifier.weight(1f),
+                            onClick = { viewModel.generateAiDocument(detail.meeting.id) }
+                        )
+                        if (detail.calendarEventId == null) {
+                            ActionChipButton(
+                                text = "同步日历",
+                                icon = Icons.Default.CloudDone,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSync?.invoke() ?: viewModel.syncCalendar() }
+                            )
+                        } else {
+                            ActionChipButton(
+                                text = "取消同步",
+                                icon = Icons.Default.EventBusy,
+                                modifier = Modifier.weight(1f),
+                                onClick = viewModel::unsyncCalendar
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = AppLine)
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AppDanger),
+                    border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                    onClick = { confirmDelete = true }
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "删除会议")
+                    Spacer(Modifier.width(8.dp))
+                    Text("删除会议")
                 }
             }
         }
@@ -761,14 +902,17 @@ private fun DetailDialog(
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("删除会议文档？") },
+            title = { Text("删除会议？") },
             text = { Text("会删除这条会议、转写、纪要、待办和导出的缓存文件。这个操作不能撤销。") },
             confirmButton = {
-                Button(onClick = {
-                    confirmDelete = false
-                    viewModel.deleteMeeting(detail.meeting.id)
-                    onDismiss()
-                }) { Text("删除") }
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = AppDanger),
+                    onClick = {
+                        confirmDelete = false
+                        viewModel.deleteMeeting(detail.meeting.id)
+                        onDismiss()
+                    }
+                ) { Text("删除") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("取消") }
@@ -778,16 +922,42 @@ private fun DetailDialog(
 }
 
 @Composable
+private fun ActionChipButton(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        modifier = modifier,
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+    ) {
+        Icon(icon, contentDescription = text, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(text, maxLines = 1)
+    }
+}
+
+@Composable
 private fun MeetingRow(meeting: MeetingCard, selected: Boolean, onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFE7EFEA) else MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = if (selected) AppSurfaceSoft else AppSurface),
+        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else AppLine),
         shape = RoundedCornerShape(8.dp)
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(meeting.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${formatDate(meeting.startedAt)} · ${meeting.status}", style = MaterialTheme.typography.bodySmall)
-            if (meeting.tags.isNotBlank()) Text(meeting.tags, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(meeting.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(formatDate(meeting.startedAt), style = MaterialTheme.typography.bodySmall, color = AppTextMuted)
+                }
+                StatusPill(statusLabel(meeting.status))
+            }
+            if (meeting.tags.isNotBlank()) {
+                Text(meeting.tags, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
@@ -803,21 +973,30 @@ private fun WeekStrip(selectedDay: Long, onSelect: (Long) -> Unit) {
             day
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         days.forEach { day ->
             val selected = sameDay(day, selectedDay)
-            Card(
+            Surface(
                 onClick = { onSelect(day) },
-                colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface),
+                color = if (selected) MaterialTheme.colorScheme.primary else AppSurface,
                 shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else AppLine),
                 modifier = Modifier.weight(1f)
             ) {
                 Column(
                     modifier = Modifier.padding(vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(SimpleDateFormat("E", Locale.CHINA).format(Date(day)), color = if (selected) Color.White else Color.Unspecified)
-                    Text(SimpleDateFormat("d", Locale.CHINA).format(Date(day)), fontWeight = FontWeight.Bold, color = if (selected) Color.White else Color.Unspecified)
+                    Text(
+                        SimpleDateFormat("E", Locale.CHINA).format(Date(day)),
+                        color = if (selected) Color.White else AppTextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        SimpleDateFormat("d", Locale.CHINA).format(Date(day)),
+                        fontWeight = FontWeight.Bold,
+                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         }
@@ -825,16 +1004,124 @@ private fun WeekStrip(selectedDay: Long, onSelect: (Long) -> Unit) {
 }
 
 @Composable
-private fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun Panel(
+    title: String,
+    subtitle: String = "",
+    trailing: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Card(
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = AppSurface),
+        border = BorderStroke(1.dp, AppLine),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    if (subtitle.isNotBlank()) {
+                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AppTextMuted)
+                    }
+                }
+                trailing?.invoke()
+            }
             content()
         }
+    }
+}
+
+@Composable
+private fun DetailSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader(title, "")
+        content()
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, meta: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        if (meta.isNotBlank()) {
+            Spacer(Modifier.weight(1f))
+            Text(meta, style = MaterialTheme.typography.bodySmall, color = AppTextMuted)
+        }
+    }
+}
+
+@Composable
+private fun SettingsLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = AppTextMuted)
+        Spacer(Modifier.weight(1f))
+        Text(value, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun SwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, fontWeight = FontWeight.Medium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AppTextMuted)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+    }
+}
+
+@Composable
+private fun StatusPill(text: String) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = AppSurfaceSoft,
+        border = BorderStroke(1.dp, Color(0xFFD6E4E2))
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun EmptyState(text: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = Color(0xFFF8FAFC),
+        border = BorderStroke(1.dp, AppLine)
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(18.dp),
+            color = AppTextMuted
+        )
+    }
+}
+
+@Composable
+private fun InsightRow(title: String, content: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.TaskAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(title, fontWeight = FontWeight.Bold)
+        }
+        Text(content, style = MaterialTheme.typography.bodySmall, color = AppTextMuted)
     }
 }
 
@@ -843,16 +1130,30 @@ private fun LevelBar(level: Float) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(10.dp)
+            .height(8.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFFE1DDD2))
+            .background(Color(0xFFE2E8F0))
     ) {
         Box(
             Modifier
                 .fillMaxWidth(level.coerceIn(0.03f, 1f))
-                .height(10.dp)
-                .background(MaterialTheme.colorScheme.tertiary)
+                .height(8.dp)
+                .background(if (level > 0.7f) AppWarning else MaterialTheme.colorScheme.primary)
         )
+    }
+}
+
+private fun aiModeLabel(settings: CloudSettings): String {
+    return if (settings.canUseExternalAi) "Kimi" else "本地"
+}
+
+private fun statusLabel(status: String): String {
+    return when (status) {
+        "completed" -> "已归档"
+        "recording" -> "录音中"
+        "processing" -> "处理中"
+        "needs_retry" -> "可重试"
+        else -> status.ifBlank { "未知" }
     }
 }
 
