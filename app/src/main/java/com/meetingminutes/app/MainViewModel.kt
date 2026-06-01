@@ -22,6 +22,7 @@ import com.meetingminutes.app.network.ExternalDocumentPolishService
 import com.meetingminutes.app.network.LocalMeetingSummaryService
 import com.meetingminutes.app.network.LocalSpeechTranscriptionService
 import com.meetingminutes.app.network.SummaryBundle
+import com.meetingminutes.app.network.UpdateInfo
 import com.meetingminutes.app.recording.RecordingForegroundService
 import com.meetingminutes.app.recording.RecordingUiState
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +49,8 @@ data class AppUiState(
     val query: String = "",
     val selectedDay: Long = System.currentTimeMillis(),
     val busy: Boolean = false,
-    val message: String = ""
+    val message: String = "",
+    val updateInfo: UpdateInfo? = null
 )
 
 class MainViewModel(application: Application) : ViewModel() {
@@ -58,6 +60,7 @@ class MainViewModel(application: Application) : ViewModel() {
     private val speechService: LocalSpeechTranscriptionService = app.appContainer.speechService
     private val summaryService: LocalMeetingSummaryService = app.appContainer.summaryService
     private val documentPolishService: ExternalDocumentPolishService = app.appContainer.documentPolishService
+    private val updateCheckService = app.appContainer.updateCheckService
     private val calendarSyncService = CalendarSyncService(app, repository)
 
     private val _uiState = MutableStateFlow(AppUiState(settings = secretStore.load()))
@@ -70,6 +73,7 @@ class MainViewModel(application: Application) : ViewModel() {
         viewModelScope.launch {
             repository.ensureDemoData()
             refreshAll()
+            checkForUpdates(silent = true)
         }
     }
 
@@ -92,6 +96,21 @@ class MainViewModel(application: Application) : ViewModel() {
     fun saveSettings(settings: CloudSettings) {
         secretStore.save(settings)
         _uiState.value = _uiState.value.copy(settings = secretStore.load(), message = "设置已保存")
+    }
+
+    fun checkForUpdates(silent: Boolean = false) {
+        viewModelScope.launch {
+            if (!silent) updateMessage("正在检查更新")
+            val update = updateCheckService.check(secretStore.load(), BuildConfig.VERSION_CODE)
+            when {
+                update != null -> _uiState.value = _uiState.value.copy(updateInfo = update, message = "发现新版本 ${update.versionName}")
+                !silent -> updateMessage("当前已是最新版本")
+            }
+        }
+    }
+
+    fun dismissUpdate() {
+        _uiState.value = _uiState.value.copy(updateInfo = null)
     }
 
     @SuppressLint("MissingPermission")

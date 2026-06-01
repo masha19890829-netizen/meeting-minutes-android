@@ -1,6 +1,8 @@
 package com.meetingminutes.app
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -205,9 +207,39 @@ private fun MeetingMinutesApp(viewModel: MainViewModel) {
                     }
                 )
                 Screen.Insights -> InsightsScreen(state)
-                Screen.Settings -> SettingsScreen(state.settings, viewModel::saveSettings)
+                Screen.Settings -> SettingsScreen(
+                    settings = state.settings,
+                    onSave = viewModel::saveSettings,
+                    onCheckUpdate = { viewModel.checkForUpdates() }
+                )
             }
         }
+    }
+    state.updateInfo?.let { update ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissUpdate,
+            title = { Text("发现新版本") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(update.versionName, fontWeight = FontWeight.Bold)
+                    Text(update.releaseNotes.take(420).ifBlank { "可以下载新的 APK 更新。" })
+                    Text(
+                        "会打开下载页面。安装时如果手机提示未知来源，按系统提示允许本次安装即可。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.dismissUpdate()
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl)))
+                }) { Text("去更新") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissUpdate) { Text("稍后") }
+            }
+        )
     }
 }
 
@@ -369,12 +401,29 @@ private fun InsightsScreen(state: AppUiState) {
 }
 
 @Composable
-private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> Unit) {
+private fun SettingsScreen(
+    settings: CloudSettings,
+    onSave: (CloudSettings) -> Unit,
+    onCheckUpdate: () -> Unit
+) {
     var keepAudio by remember(settings) { mutableStateOf(settings.keepAudioAfterSuccess) }
     var aiEnabled by remember(settings) { mutableStateOf(settings.aiPolishEnabled) }
     var aiBaseUrl by remember(settings) { mutableStateOf(settings.aiBaseUrl) }
     var aiApiKey by remember(settings) { mutableStateOf(settings.aiApiKey) }
     var aiModel by remember(settings) { mutableStateOf(settings.aiModel) }
+    var updateEnabled by remember(settings) { mutableStateOf(settings.updateChecksEnabled) }
+    var updateApiUrl by remember(settings) { mutableStateOf(settings.updateApiUrl) }
+    fun currentSettings() = CloudSettings(
+        transcriptionEngine = settings.transcriptionEngine,
+        summaryEngine = settings.summaryEngine,
+        keepAudioAfterSuccess = keepAudio,
+        aiPolishEnabled = aiEnabled,
+        aiBaseUrl = aiBaseUrl,
+        aiApiKey = aiApiKey,
+        aiModel = aiModel,
+        updateChecksEnabled = updateEnabled,
+        updateApiUrl = updateApiUrl
+    )
 
     Column(
         modifier = Modifier
@@ -444,20 +493,46 @@ private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> U
                 )
             }
         }
+        CardBlock(title = "应用更新") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("启动时检查 GitHub 新版本", fontWeight = FontWeight.Medium)
+                    Text("有新 APK 时会弹窗提示，不会自动强制安装。", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = updateEnabled, onCheckedChange = { updateEnabled = it })
+            }
+            OutlinedTextField(
+                value = updateApiUrl,
+                onValueChange = { updateApiUrl = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("GitHub 更新地址") },
+                placeholder = { Text("GitHub Releases latest API 地址") },
+                minLines = 2,
+                maxLines = 3
+            )
+            Text(
+                "默认指向 masha19890829-netizen/meeting-minutes-android 的 GitHub Releases。以后发布新版时，Release 说明里写 versionCode: 更大的数字，并上传 APK。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    onSave(currentSettings())
+                    onCheckUpdate()
+                }
+            ) {
+                Text("保存并检查更新")
+            }
+        }
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = {
-                onSave(
-                    CloudSettings(
-                        transcriptionEngine = settings.transcriptionEngine,
-                        summaryEngine = settings.summaryEngine,
-                        keepAudioAfterSuccess = keepAudio,
-                        aiPolishEnabled = aiEnabled,
-                        aiBaseUrl = aiBaseUrl,
-                        aiApiKey = aiApiKey,
-                        aiModel = aiModel
-                    )
-                )
+                onSave(currentSettings())
             }
         ) {
             Text("保存设置")

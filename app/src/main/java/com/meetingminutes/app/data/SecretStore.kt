@@ -12,6 +12,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+const val DEFAULT_UPDATE_API_URL = "https://api.github.com/repos/masha19890829-netizen/meeting-minutes-android/releases/latest"
+
 data class CloudSettings(
     val transcriptionEngine: String = "离线中文识别",
     val summaryEngine: String = "本地规则纪要",
@@ -19,7 +21,9 @@ data class CloudSettings(
     val aiPolishEnabled: Boolean = false,
     val aiBaseUrl: String = "",
     val aiApiKey: String = "",
-    val aiModel: String = ""
+    val aiModel: String = "",
+    val updateChecksEnabled: Boolean = true,
+    val updateApiUrl: String = DEFAULT_UPDATE_API_URL
 ) {
     val isFreeMode: Boolean get() = true
     val canUseExternalAi: Boolean get() = aiPolishEnabled && aiBaseUrl.isNotBlank() && aiModel.isNotBlank()
@@ -36,7 +40,9 @@ class SecretStore(context: Context) {
             aiPolishEnabled = prefs.getBoolean("ai_polish_enabled", false),
             aiBaseUrl = prefs.getString("ai_base_url", "") ?: "",
             aiApiKey = decryptPref("ai_api_key"),
-            aiModel = prefs.getString("ai_model", "") ?: ""
+            aiModel = prefs.getString("ai_model", "") ?: "",
+            updateChecksEnabled = prefs.getBoolean("update_checks_enabled", true),
+            updateApiUrl = prefs.getString("update_api_url", DEFAULT_UPDATE_API_URL) ?: DEFAULT_UPDATE_API_URL
         )
     }
 
@@ -49,6 +55,8 @@ class SecretStore(context: Context) {
             .putString("ai_base_url", settings.aiBaseUrl.trim().trimEnd('/'))
             .putString("ai_api_key", encrypt(settings.aiApiKey))
             .putString("ai_model", settings.aiModel.trim())
+            .putBoolean("update_checks_enabled", settings.updateChecksEnabled)
+            .putString("update_api_url", settings.updateApiUrl.trim())
             .apply()
     }
 

@@ -8,6 +8,7 @@ import com.meetingminutes.app.export.DocumentExportService
 import com.meetingminutes.app.network.ExternalDocumentPolishService
 import com.meetingminutes.app.network.LocalMeetingSummaryService
 import com.meetingminutes.app.network.LocalSpeechTranscriptionService
+import com.meetingminutes.app.network.UpdateCheckService
 
 class AppContainer(application: Application) {
     val database: AppDatabase = AppDatabase.getInstance(application)
@@ -16,5 +17,6 @@ class AppContainer(application: Application) {
     val speechService = LocalSpeechTranscriptionService(application)
     val summaryService = LocalMeetingSummaryService()
     val documentPolishService = ExternalDocumentPolishService(secretStore)
+    val updateCheckService = UpdateCheckService()
     val documentExportService = DocumentExportService(application, repository)
 }
