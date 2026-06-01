@@ -33,7 +33,7 @@ class MeetingRepository(private val dao: MeetingDao) {
                 0,
                 18_000,
                 "发言人",
-                "这是一条演示转写。真实录音需要先在设置里填写 OpenAI API Key。",
+                "这是一条演示转写。免费版会在录音结束后使用手机本地模型识别文字。",
                 true
             )
         )
@@ -55,12 +55,12 @@ class MeetingRepository(private val dao: MeetingDao) {
                 "第一版优先跑通会议记录闭环，并保留清晰的设置入口。",
                 "第一版以私人试用 APK 为目标。",
                 "未填写云服务密钥时只能使用演示数据。",
-                "真实长会议需要验证 OpenAI 转写稳定性。",
+                "真实长会议需要验证本地离线识别稳定性。",
                 markdown,
                 now
             )
         )
-        dao.insertActionItem(ActionItemEntity(meetingId, "你", "填写 OpenAI API Key 后录一次真实会议", 0, false))
+        dao.insertActionItem(ActionItemEntity(meetingId, "你", "直接录一次真实会议，验证免费本地识别效果", 0, false))
         dao.insertInsightReport(
             InsightReportEntity(
                 "daily",

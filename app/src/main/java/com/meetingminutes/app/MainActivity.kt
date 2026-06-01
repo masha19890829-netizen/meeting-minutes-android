@@ -70,7 +70,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.meetingminutes.app.data.CloudSettings
@@ -271,14 +270,14 @@ private fun RecordScreen(
         LevelBar(state.recording.level)
         Spacer(Modifier.height(18.dp))
         CardBlock(title = "现场转写") {
-            Text(state.recording.liveTranscript.ifBlank { "OpenAI 版会在停止录音后统一转写并生成纪要。录音过程中可以锁屏或切到其他应用。" })
+            Text(state.recording.liveTranscript.ifBlank { "免费版会在停止录音后用手机本地模型转写并生成纪要。录音过程中可以锁屏或切到其他应用。" })
         }
     }
     if (confirmStop) {
         AlertDialog(
             onDismissRequest = { confirmStop = false },
             title = { Text("停止录音？") },
-            text = { Text("停止后会上传音频进行转写，并自动生成会议纪要。") },
+            text = { Text("停止后会在手机本地转写，并自动生成会议纪要。") },
             confirmButton = {
                 Button(onClick = {
                     confirmStop = false
@@ -369,9 +368,7 @@ private fun InsightsScreen(state: AppUiState) {
 
 @Composable
 private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> Unit) {
-    var apiKey by remember(settings) { mutableStateOf(settings.openAiApiKey) }
-    var transcriptionModel by remember(settings) { mutableStateOf(settings.transcriptionModel) }
-    var summaryModel by remember(settings) { mutableStateOf(settings.summaryModel) }
+    var keepAudio by remember(settings) { mutableStateOf(settings.keepAudioAfterSuccess) }
 
     Column(
         modifier = Modifier
@@ -380,34 +377,34 @@ private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> U
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        CardBlock(title = "OpenAI") {
-            SecretField("OpenAI API Key", apiKey) { apiKey = it }
-            OutlinedTextField(
-                value = transcriptionModel,
-                onValueChange = { transcriptionModel = it },
-                label = { Text("转写模型") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = summaryModel,
-                onValueChange = { summaryModel = it },
-                label = { Text("总结模型") },
-                modifier = Modifier.fillMaxWidth()
-            )
+        CardBlock(title = "免费本地模式") {
+            Text("转写：${settings.transcriptionEngine}")
+            Text("纪要：${settings.summaryEngine}")
             Text(
-                "只需要这一把钥匙。录音结束后会上传到 OpenAI 转写，再自动生成会议纪要。",
+                "不需要 OpenAI、不需要充值。录音结束后会在手机本地转写，纪要由本地规则整理。第一次识别会解压离线模型，可能稍慢。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("识别成功后保留音频", fontWeight = FontWeight.Medium)
+                    Text("关闭时会自动删除原始录音，节省空间", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = keepAudio, onCheckedChange = { keepAudio = it })
+            }
         }
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = {
                 onSave(
                     CloudSettings(
-                        openAiApiKey = apiKey,
-                        transcriptionModel = transcriptionModel,
-                        summaryModel = summaryModel
+                        transcriptionEngine = settings.transcriptionEngine,
+                        summaryEngine = settings.summaryEngine,
+                        keepAudioAfterSuccess = keepAudio
                     )
                 )
             }
@@ -415,18 +412,6 @@ private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> U
             Text("保存设置")
         }
     }
-}
-
-@Composable
-private fun SecretField(label: String, value: String, onValue: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValue,
-        label = { Text(label) },
-        modifier = Modifier.fillMaxWidth(),
-        visualTransformation = PasswordVisualTransformation(),
-        singleLine = true
-    )
 }
 
 @Composable

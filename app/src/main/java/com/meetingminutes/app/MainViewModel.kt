@@ -18,10 +18,10 @@ import com.meetingminutes.app.data.MeetingCard
 import com.meetingminutes.app.data.MeetingDetail
 import com.meetingminutes.app.data.MeetingRepository
 import com.meetingminutes.app.data.SecretStore
-import com.meetingminutes.app.network.OpenAiMeetingService
+import com.meetingminutes.app.network.LocalMeetingSummaryService
+import com.meetingminutes.app.network.LocalSpeechTranscriptionService
 import com.meetingminutes.app.recording.RecordingForegroundService
 import com.meetingminutes.app.recording.RecordingUiState
-import com.meetingminutes.app.recording.WavAudioUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -42,7 +42,7 @@ data class AppUiState(
     val selectedDayMeetings: List<MeetingCard> = emptyList(),
     val insights: List<com.meetingminutes.app.data.InsightReport> = emptyList(),
     val recording: RecordingUiState = RecordingUiState(),
-    val settings: CloudSettings = CloudSettings("", "gpt-4o-mini-transcribe", "gpt-4o-mini"),
+    val settings: CloudSettings = CloudSettings("离线中文识别", "本地规则纪要", false),
     val query: String = "",
     val selectedDay: Long = System.currentTimeMillis(),
     val busy: Boolean = false,
@@ -53,7 +53,8 @@ class MainViewModel(application: Application) : ViewModel() {
     private val app = application as MeetingMinutesApplication
     private val repository: MeetingRepository = app.appContainer.repository
     private val secretStore: SecretStore = app.appContainer.secretStore
-    private val openAiService: OpenAiMeetingService = app.appContainer.openAiService
+    private val speechService: LocalSpeechTranscriptionService = app.appContainer.speechService
+    private val summaryService: LocalMeetingSummaryService = app.appContainer.summaryService
     private val calendarSyncService = CalendarSyncService(app, repository)
 
     private val _uiState = MutableStateFlow(AppUiState(settings = secretStore.load()))
@@ -140,7 +141,7 @@ class MainViewModel(application: Application) : ViewModel() {
                                     recording = _uiState.value.recording.copy(
                                         durationMs = duration,
                                         level = audioLevel(buffer, read),
-                                        liveTranscript = "OpenAI 模式会在停止录音后统一转写。"
+                                        liveTranscript = "免费版会在停止录音后离线转写，无需充值或 API Key。"
                                     )
                                 )
                             }
@@ -207,8 +208,12 @@ class MainViewModel(application: Application) : ViewModel() {
     fun regenerateSummary(meetingId: Long) {
         viewModelScope.launch {
             val detail = repository.getMeetingDetail(meetingId) ?: return@launch
-            val transcript = repository.buildTranscriptText(meetingId)
-            val bundle = openAiService.summarize(detail.meeting, transcript)
+            val transcript = if (detail.meeting.audioPath.isNotBlank() && detail.meeting.status == "needs_retry") {
+                retryTranscription(detail)
+            } else {
+                repository.buildTranscriptText(meetingId)
+            }
+            val bundle = summaryService.summarize(detail.meeting, transcript)
             repository.saveSummary(meetingId, bundle.summary, bundle.actions)
             repository.updateMeetingCompleted(meetingId, detail.meeting.endedAt, "completed", "", bundle.tags)
             refreshAll()
@@ -225,29 +230,25 @@ class MainViewModel(application: Application) : ViewModel() {
         audioFile: File
     ) {
         _uiState.value = _uiState.value.copy(recording = _uiState.value.recording.copy(isRecording = false, message = "正在转写和总结"))
-        val meetingCard = MeetingCard(meetingId, title, startedAt, endedAt, "processing", "")
+        val meetingCard = MeetingCard(meetingId, title, startedAt, endedAt, "processing", "", "")
         runCatching {
             var transcript = repository.buildTranscriptText(meetingId)
-            val wavFiles = mutableListOf<File>()
-            if (transcript.isBlank() && openAiService.hasCredentials()) {
-                wavFiles += WavAudioUtil.pcmToWavChunks(audioFile, audioFile.parentFile ?: app.cacheDir, meetingId.toString())
-                transcript = wavFiles.mapIndexed { index, file ->
-                    _uiState.value = _uiState.value.copy(
-                        recording = _uiState.value.recording.copy(message = "正在转写第 ${index + 1}/${wavFiles.size} 段")
-                    )
-                    openAiService.transcribeAudio(file)
-                }.joinToString("\n")
+            if (transcript.isBlank()) {
+                _uiState.value = _uiState.value.copy(recording = _uiState.value.recording.copy(message = "正在本地离线转写"))
+                transcript = speechService.transcribePcmFile(audioFile) { partial ->
+                    _uiState.value = _uiState.value.copy(recording = _uiState.value.recording.copy(liveTranscript = partial))
+                }
                 repository.saveTranscriptSegment(meetingId, transcript, 0, endedAt - startedAt)
             }
             if (transcript.isBlank()) {
-                transcript = "录音已保存，但还没有可用转写。请在设置里填写 OpenAI API Key 后重新录制。"
+                transcript = "录音已保存，但本地识别没有得到可用文字。可以在会议详情里重试，或在更安静的环境下重新录制。"
                 repository.saveTranscriptSegment(meetingId, transcript, 0, endedAt - startedAt)
             }
-            val bundle = openAiService.summarize(meetingCard, transcript)
+            val bundle = summaryService.summarize(meetingCard, transcript)
             repository.saveSummary(meetingId, bundle.summary, bundle.actions)
-            audioFile.delete()
-            wavFiles.forEach { it.delete() }
-            repository.updateMeetingCompleted(meetingId, endedAt, "completed", "", bundle.tags)
+            val keepAudio = secretStore.load().keepAudioAfterSuccess
+            if (!keepAudio) audioFile.delete()
+            repository.updateMeetingCompleted(meetingId, endedAt, "completed", if (keepAudio) audioFile.absolutePath else "", bundle.tags)
             _uiState.value = _uiState.value.copy(
                 recording = RecordingUiState(message = "会议已归档"),
                 message = "会议已完成归档"
@@ -261,6 +262,20 @@ class MainViewModel(application: Application) : ViewModel() {
         }
         refreshAll()
         selectMeeting(meetingId)
+    }
+
+    private suspend fun retryTranscription(detail: MeetingDetail): String {
+        val audioFile = File(detail.meeting.audioPath)
+        if (!audioFile.exists()) return repository.buildTranscriptText(detail.meeting.id)
+        updateMessage("正在重新本地识别")
+        val text = speechService.transcribePcmFile(audioFile)
+        if (text.isNotBlank()) {
+            repository.replaceTranscript(
+                detail.meeting.id,
+                listOf(com.meetingminutes.app.data.TranscriptLine(0, 0, detail.meeting.endedAt - detail.meeting.startedAt, "发言人", text, true))
+            )
+        }
+        return text.ifBlank { repository.buildTranscriptText(detail.meeting.id) }
     }
 
     private suspend fun refreshAll() {

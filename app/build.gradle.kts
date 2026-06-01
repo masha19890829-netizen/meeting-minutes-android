@@ -68,6 +68,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.json:json:20260522")
+    implementation("com.alphacephei:vosk-android:0.3.47")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

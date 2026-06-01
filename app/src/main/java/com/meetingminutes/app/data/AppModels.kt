@@ -13,6 +13,7 @@ data class MeetingCard(
     val startedAt: Long,
     val endedAt: Long,
     val status: String,
+    val audioPath: String,
     val tags: String
 )
 
@@ -65,6 +66,7 @@ fun MeetingEntity.toCard() = MeetingCard(
     startedAt = startedAt,
     endedAt = endedAt,
     status = status,
+    audioPath = audioPath,
     tags = tags
 )
 
@@ -106,4 +108,3 @@ fun InsightReportEntity.toReport() = InsightReport(
 fun CalendarSyncStateEntity?.calendarEventIdOrNull(): Long? {
     return if (this == null || calendarEventId <= 0 || status != "synced") null else calendarEventId
 }
-
