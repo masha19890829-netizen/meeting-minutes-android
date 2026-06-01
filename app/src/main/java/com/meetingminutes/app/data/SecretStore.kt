@@ -13,15 +13,11 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 data class CloudSettings(
-    val kimiApiKey: String,
-    val kimiModel: String,
-    val aliyunAccessKeyId: String,
-    val aliyunAccessKeySecret: String,
-    val aliyunAppKey: String,
-    val aliyunRegion: String
+    val openAiApiKey: String,
+    val transcriptionModel: String,
+    val summaryModel: String
 ) {
-    val hasKimi: Boolean get() = kimiApiKey.isNotBlank()
-    val hasAliyun: Boolean get() = aliyunAccessKeyId.isNotBlank() && aliyunAccessKeySecret.isNotBlank() && aliyunAppKey.isNotBlank()
+    val hasOpenAi: Boolean get() = openAiApiKey.isNotBlank()
 }
 
 class SecretStore(context: Context) {
@@ -29,23 +25,19 @@ class SecretStore(context: Context) {
 
     fun load(): CloudSettings {
         return CloudSettings(
-            kimiApiKey = decryptPref("kimi_api_key"),
-            kimiModel = prefs.getString("kimi_model", "kimi-k2.6") ?: "kimi-k2.6",
-            aliyunAccessKeyId = decryptPref("aliyun_access_key_id"),
-            aliyunAccessKeySecret = decryptPref("aliyun_access_key_secret"),
-            aliyunAppKey = decryptPref("aliyun_app_key"),
-            aliyunRegion = prefs.getString("aliyun_region", "cn-shanghai") ?: "cn-shanghai"
+            openAiApiKey = decryptPref("openai_api_key"),
+            transcriptionModel = prefs.getString("openai_transcription_model", "gpt-4o-mini-transcribe")
+                ?: "gpt-4o-mini-transcribe",
+            summaryModel = prefs.getString("openai_summary_model", "gpt-4o-mini")
+                ?: "gpt-4o-mini"
         )
     }
 
     fun save(settings: CloudSettings) {
         prefs.edit()
-            .putString("kimi_api_key", encrypt(settings.kimiApiKey))
-            .putString("kimi_model", settings.kimiModel.ifBlank { "kimi-k2.6" })
-            .putString("aliyun_access_key_id", encrypt(settings.aliyunAccessKeyId))
-            .putString("aliyun_access_key_secret", encrypt(settings.aliyunAccessKeySecret))
-            .putString("aliyun_app_key", encrypt(settings.aliyunAppKey))
-            .putString("aliyun_region", settings.aliyunRegion.ifBlank { "cn-shanghai" })
+            .putString("openai_api_key", encrypt(settings.openAiApiKey))
+            .putString("openai_transcription_model", settings.transcriptionModel.ifBlank { "gpt-4o-mini-transcribe" })
+            .putString("openai_summary_model", settings.summaryModel.ifBlank { "gpt-4o-mini" })
             .apply()
     }
 
@@ -97,4 +89,3 @@ class SecretStore(context: Context) {
         private const val IV_BYTES = 12
     }
 }
-

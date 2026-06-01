@@ -7,11 +7,14 @@ import com.meetingminutes.app.data.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -23,53 +26,73 @@ data class SummaryBundle(
     val tags: String
 )
 
-class KimiMeetingSummaryService(private val secretStore: SecretStore) {
+class OpenAiMeetingService(private val secretStore: SecretStore) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(120, TimeUnit.SECONDS)
         .build()
+
+    fun hasCredentials(): Boolean = secretStore.load().hasOpenAi
+
+    suspend fun transcribeAudio(file: File): String = withContext(Dispatchers.IO) {
+        val settings = secretStore.load()
+        if (!settings.hasOpenAi) error("请先在设置里填写 OpenAI API Key。")
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("model", settings.transcriptionModel.ifBlank { "gpt-4o-mini-transcribe" })
+            .addFormDataPart("file", file.name, file.asRequestBody("audio/wav".toMediaType()))
+            .build()
+        val request = Request.Builder()
+            .url("https://api.openai.com/v1/audio/transcriptions")
+            .addHeader("Authorization", "Bearer ${settings.openAiApiKey}")
+            .post(requestBody)
+            .build()
+        client.newCall(request).execute().use { response ->
+            val raw = response.body.string()
+            if (!response.isSuccessful) error("OpenAI 转写失败 ${response.code}: $raw")
+            JSONObject(raw).optString("text").ifBlank { raw }
+        }
+    }
 
     suspend fun summarize(meeting: MeetingCard, transcript: String): SummaryBundle = withContext(Dispatchers.IO) {
         val settings = secretStore.load()
-        if (!settings.hasKimi || transcript.isBlank()) {
+        if (!settings.hasOpenAi || transcript.isBlank()) {
             return@withContext heuristicSummary(meeting, transcript)
         }
 
         val payload = JSONObject()
-            .put("model", settings.kimiModel.ifBlank { "kimi-k2.6" })
+            .put("model", settings.summaryModel.ifBlank { "gpt-4o-mini" })
             .put("temperature", 0.2)
-            .put("messages", JSONArray()
-                .put(JSONObject()
-                    .put("role", "system")
-                    .put("content", "你是专业会议纪要助手。请只输出合法 JSON，不要使用 Markdown 代码块。"))
-                .put(JSONObject()
-                    .put("role", "user")
-                    .put("content", buildPrompt(meeting, transcript)))
+            .put(
+                "messages",
+                JSONArray()
+                    .put(JSONObject().put("role", "system").put("content", "你是专业会议纪要助手。请只输出合法 JSON，不要使用 Markdown 代码块。"))
+                    .put(JSONObject().put("role", "user").put("content", buildPrompt(meeting, transcript)))
             )
-
         val request = Request.Builder()
-            .url("https://api.moonshot.cn/v1/chat/completions")
-            .addHeader("Authorization", "Bearer ${settings.kimiApiKey}")
+            .url("https://api.openai.com/v1/chat/completions")
+            .addHeader("Authorization", "Bearer ${settings.openAiApiKey}")
             .addHeader("Content-Type", "application/json")
             .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
 
         runCatching {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) error("Kimi 返回 ${response.code}: ${response.body.string()}")
-                val body = JSONObject(response.body.string())
+                val raw = response.body.string()
+                if (!response.isSuccessful) error("OpenAI 总结失败 ${response.code}: $raw")
+                val body = JSONObject(raw)
                 val content = body.getJSONArray("choices")
                     .getJSONObject(0)
                     .getJSONObject("message")
                     .getString("content")
                 parseSummaryJson(meeting, transcript, content)
             }
-        }.getOrElse { heuristicSummary(meeting, transcript, "Kimi 调用失败：${it.message}") }
+        }.getOrElse { heuristicSummary(meeting, transcript, "OpenAI 总结失败：${it.message}") }
     }
 
     fun heuristicSummary(meeting: MeetingCard, transcript: String, note: String = ""): SummaryBundle {
-        val clean = transcript.ifBlank { "尚未获得真实转写内容。请在设置页填写阿里云和 Kimi 密钥后再录制会议。" }
+        val clean = transcript.ifBlank { "尚未获得真实转写内容。请在设置页填写 OpenAI API Key 后再录制会议。" }
         val brief = clean.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.take(3).joinToString(" ")
             .ifBlank { clean.take(120) }
         val markdown = buildMarkdown(
@@ -78,7 +101,7 @@ class KimiMeetingSummaryService(private val secretStore: SecretStore) {
             decisions = "未识别到明确决策，请在真实转写完成后重新生成。",
             risks = "当前结果可能来自本地兜底摘要，需要云端模型确认。",
             openQuestions = "是否需要补充参会人、项目名和截止日期？",
-            actions = listOf("补充云服务密钥并重新生成会议纪要。"),
+            actions = listOf("填写 OpenAI API Key 后重新生成会议纪要。"),
             transcript = clean
         )
         return SummaryBundle(
@@ -89,7 +112,7 @@ class KimiMeetingSummaryService(private val secretStore: SecretStore) {
                 openQuestions = "是否需要补充参会人、项目名和截止日期？",
                 markdown = markdown
             ),
-            actions = listOf(ActionItem(owner = "我", content = "补充云服务密钥并重新生成会议纪要")),
+            actions = listOf(ActionItem(owner = "我", content = "填写 OpenAI API Key 后重新生成会议纪要")),
             tags = "待完善,本地摘要"
         )
     }
@@ -164,9 +187,7 @@ class KimiMeetingSummaryService(private val secretStore: SecretStore) {
     private fun JSONArray?.toStringList(): List<String> {
         if (this == null) return emptyList()
         val result = mutableListOf<String>()
-        for (index in 0 until length()) {
-            optString(index).takeIf { it.isNotBlank() }?.let { result += it }
-        }
+        for (index in 0 until length()) optString(index).takeIf { it.isNotBlank() }?.let { result += it }
         return result
     }
 
@@ -204,4 +225,3 @@ class KimiMeetingSummaryService(private val secretStore: SecretStore) {
         }
     }
 }
-

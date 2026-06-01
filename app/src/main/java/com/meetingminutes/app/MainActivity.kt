@@ -217,7 +217,8 @@ private fun RecordScreen(
     onStop: () -> Unit
 ) {
     var title by remember { mutableStateOf("会议 ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date())}") }
-    var realtime by remember { mutableStateOf(true) }
+    var backgroundSafe by remember { mutableStateOf(true) }
+    var confirmStop by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -238,8 +239,11 @@ private fun RecordScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(if (realtime) "实时转写" else "录后转写", fontWeight = FontWeight.Medium)
-            Switch(checked = realtime, onCheckedChange = { realtime = it }, enabled = !state.recording.isRecording)
+            Column(Modifier.weight(1f)) {
+                Text("后台持续录音", fontWeight = FontWeight.Medium)
+                Text("锁屏、切应用后继续录，停止前会二次确认", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = backgroundSafe, onCheckedChange = { backgroundSafe = it }, enabled = !state.recording.isRecording)
         }
         Spacer(Modifier.height(28.dp))
         Box(
@@ -251,7 +255,7 @@ private fun RecordScreen(
         ) {
             FilledIconButton(
                 modifier = Modifier.size(124.dp),
-                onClick = { if (state.recording.isRecording) onStop() else onStart(title, realtime) }
+                onClick = { if (state.recording.isRecording) confirmStop = true else onStart(title, backgroundSafe) }
             ) {
                 Icon(
                     imageVector = if (state.recording.isRecording) Icons.Default.Stop else Icons.Default.Mic,
@@ -267,8 +271,24 @@ private fun RecordScreen(
         LevelBar(state.recording.level)
         Spacer(Modifier.height(18.dp))
         CardBlock(title = "现场转写") {
-            Text(state.recording.liveTranscript.ifBlank { "录音时这里会显示最近一句识别结果。" })
+            Text(state.recording.liveTranscript.ifBlank { "OpenAI 版会在停止录音后统一转写并生成纪要。录音过程中可以锁屏或切到其他应用。" })
         }
+    }
+    if (confirmStop) {
+        AlertDialog(
+            onDismissRequest = { confirmStop = false },
+            title = { Text("停止录音？") },
+            text = { Text("停止后会上传音频进行转写，并自动生成会议纪要。") },
+            confirmButton = {
+                Button(onClick = {
+                    confirmStop = false
+                    onStop()
+                }) { Text("停止并整理") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmStop = false }) { Text("继续录音") }
+            }
+        )
     }
 }
 
@@ -349,12 +369,9 @@ private fun InsightsScreen(state: AppUiState) {
 
 @Composable
 private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> Unit) {
-    var kimiKey by remember(settings) { mutableStateOf(settings.kimiApiKey) }
-    var kimiModel by remember(settings) { mutableStateOf(settings.kimiModel) }
-    var akId by remember(settings) { mutableStateOf(settings.aliyunAccessKeyId) }
-    var akSecret by remember(settings) { mutableStateOf(settings.aliyunAccessKeySecret) }
-    var appKey by remember(settings) { mutableStateOf(settings.aliyunAppKey) }
-    var region by remember(settings) { mutableStateOf(settings.aliyunRegion) }
+    var apiKey by remember(settings) { mutableStateOf(settings.openAiApiKey) }
+    var transcriptionModel by remember(settings) { mutableStateOf(settings.transcriptionModel) }
+    var summaryModel by remember(settings) { mutableStateOf(settings.summaryModel) }
 
     Column(
         modifier = Modifier
@@ -363,27 +380,34 @@ private fun SettingsScreen(settings: CloudSettings, onSave: (CloudSettings) -> U
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        CardBlock(title = "Kimi") {
-            SecretField("Kimi API Key", kimiKey) { kimiKey = it }
-            OutlinedTextField(value = kimiModel, onValueChange = { kimiModel = it }, label = { Text("模型") }, modifier = Modifier.fillMaxWidth())
-        }
-        CardBlock(title = "阿里云语音识别") {
-            SecretField("AccessKey ID", akId) { akId = it }
-            SecretField("AccessKey Secret", akSecret) { akSecret = it }
-            SecretField("NLS AppKey", appKey) { appKey = it }
-            OutlinedTextField(value = region, onValueChange = { region = it }, label = { Text("地域") }, modifier = Modifier.fillMaxWidth())
+        CardBlock(title = "OpenAI") {
+            SecretField("OpenAI API Key", apiKey) { apiKey = it }
+            OutlinedTextField(
+                value = transcriptionModel,
+                onValueChange = { transcriptionModel = it },
+                label = { Text("转写模型") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = summaryModel,
+                onValueChange = { summaryModel = it },
+                label = { Text("总结模型") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "只需要这一把钥匙。录音结束后会上传到 OpenAI 转写，再自动生成会议纪要。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
         }
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = {
                 onSave(
                     CloudSettings(
-                        kimiApiKey = kimiKey,
-                        kimiModel = kimiModel,
-                        aliyunAccessKeyId = akId,
-                        aliyunAccessKeySecret = akSecret,
-                        aliyunAppKey = appKey,
-                        aliyunRegion = region
+                        openAiApiKey = apiKey,
+                        transcriptionModel = transcriptionModel,
+                        summaryModel = summaryModel
                     )
                 )
             }

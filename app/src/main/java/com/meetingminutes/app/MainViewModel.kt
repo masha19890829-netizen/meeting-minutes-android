@@ -18,11 +18,10 @@ import com.meetingminutes.app.data.MeetingCard
 import com.meetingminutes.app.data.MeetingDetail
 import com.meetingminutes.app.data.MeetingRepository
 import com.meetingminutes.app.data.SecretStore
-import com.meetingminutes.app.data.TranscriptLine
-import com.meetingminutes.app.network.AliyunSpeechTranscriptionService
-import com.meetingminutes.app.network.KimiMeetingSummaryService
+import com.meetingminutes.app.network.OpenAiMeetingService
 import com.meetingminutes.app.recording.RecordingForegroundService
 import com.meetingminutes.app.recording.RecordingUiState
+import com.meetingminutes.app.recording.WavAudioUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -43,7 +42,7 @@ data class AppUiState(
     val selectedDayMeetings: List<MeetingCard> = emptyList(),
     val insights: List<com.meetingminutes.app.data.InsightReport> = emptyList(),
     val recording: RecordingUiState = RecordingUiState(),
-    val settings: CloudSettings = CloudSettings("", "kimi-k2.6", "", "", "", "cn-shanghai"),
+    val settings: CloudSettings = CloudSettings("", "gpt-4o-mini-transcribe", "gpt-4o-mini"),
     val query: String = "",
     val selectedDay: Long = System.currentTimeMillis(),
     val busy: Boolean = false,
@@ -54,8 +53,7 @@ class MainViewModel(application: Application) : ViewModel() {
     private val app = application as MeetingMinutesApplication
     private val repository: MeetingRepository = app.appContainer.repository
     private val secretStore: SecretStore = app.appContainer.secretStore
-    private val speechService: AliyunSpeechTranscriptionService = app.appContainer.speechService
-    private val summaryService: KimiMeetingSummaryService = app.appContainer.summaryService
+    private val openAiService: OpenAiMeetingService = app.appContainer.openAiService
     private val calendarSyncService = CalendarSyncService(app, repository)
 
     private val _uiState = MutableStateFlow(AppUiState(settings = secretStore.load()))
@@ -117,36 +115,6 @@ class MainViewModel(application: Application) : ViewModel() {
                     if (exists()) delete()
                     createNewFile()
                 }
-                val finalLines = mutableListOf<TranscriptLine>()
-                var realtimeSession: AliyunSpeechTranscriptionService.RealtimeSpeechSession? = null
-                if (realtime && speechService.hasCredentials()) {
-                    realtimeSession = runCatching {
-                        speechService.openRealtimeSession(
-                            onText = { text, finalSegment ->
-                                _uiState.value = _uiState.value.copy(
-                                    recording = _uiState.value.recording.copy(
-                                        liveTranscript = text,
-                                        message = if (finalSegment) "实时转写中" else "正在识别"
-                                    )
-                                )
-                                if (finalSegment && text.isNotBlank()) {
-                                    val line = TranscriptLine(
-                                        id = 0,
-                                        startMs = finalLines.size * 10_000L,
-                                        endMs = (finalLines.size + 1) * 10_000L,
-                                        speaker = "发言人",
-                                        text = text,
-                                        finalSegment = true
-                                    )
-                                    finalLines += line
-                                    viewModelScope.launch { repository.saveTranscriptSegment(meetingId, text, line.startMs, line.endMs) }
-                                }
-                            },
-                            onError = { updateMessage("实时转写暂时不可用：$it") }
-                        )
-                    }.getOrNull()
-                }
-
                 val bufferSize = max(
                     AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT),
                     SAMPLE_RATE
@@ -167,12 +135,12 @@ class MainViewModel(application: Application) : ViewModel() {
                             val read = recorder.read(buffer, 0, buffer.size)
                             if (read > 0) {
                                 output.write(buffer, 0, read)
-                                realtimeSession?.sendPcm(buffer, read)
                                 val duration = System.currentTimeMillis() - startMs
                                 _uiState.value = _uiState.value.copy(
                                     recording = _uiState.value.recording.copy(
                                         durationMs = duration,
-                                        level = audioLevel(buffer, read)
+                                        level = audioLevel(buffer, read),
+                                        liveTranscript = "OpenAI 模式会在停止录音后统一转写。"
                                     )
                                 )
                             }
@@ -181,12 +149,11 @@ class MainViewModel(application: Application) : ViewModel() {
                 } finally {
                     runCatching { recorder.stop() }
                     recorder.release()
-                    realtimeSession?.close()
                     runCatching { RecordingForegroundService.stop(app) }
                 }
 
                 val endedAt = System.currentTimeMillis()
-                processRecording(meetingId, cleanTitle, startedAt, endedAt, audioFile, finalLines)
+                processRecording(meetingId, cleanTitle, startedAt, endedAt, audioFile)
             }
         }
     }
@@ -241,7 +208,7 @@ class MainViewModel(application: Application) : ViewModel() {
         viewModelScope.launch {
             val detail = repository.getMeetingDetail(meetingId) ?: return@launch
             val transcript = repository.buildTranscriptText(meetingId)
-            val bundle = summaryService.summarize(detail.meeting, transcript)
+            val bundle = openAiService.summarize(detail.meeting, transcript)
             repository.saveSummary(meetingId, bundle.summary, bundle.actions)
             repository.updateMeetingCompleted(meetingId, detail.meeting.endedAt, "completed", "", bundle.tags)
             refreshAll()
@@ -255,26 +222,31 @@ class MainViewModel(application: Application) : ViewModel() {
         title: String,
         startedAt: Long,
         endedAt: Long,
-        audioFile: File,
-        realtimeLines: List<TranscriptLine>
+        audioFile: File
     ) {
         _uiState.value = _uiState.value.copy(recording = _uiState.value.recording.copy(isRecording = false, message = "正在转写和总结"))
         val meetingCard = MeetingCard(meetingId, title, startedAt, endedAt, "processing", "")
         runCatching {
             var transcript = repository.buildTranscriptText(meetingId)
-            if (transcript.isBlank() && speechService.hasCredentials()) {
-                val lines = speechService.transcribePcmFile(audioFile) { line ->
-                    repository.saveTranscriptSegment(meetingId, line.text, line.startMs, line.endMs)
-                }
-                transcript = lines.joinToString("\n") { it.text }
-            }
-            if (transcript.isBlank()) {
-                transcript = "录音已保存，但还没有可用转写。请在设置里填写阿里云和 Kimi 密钥后重新录制。"
+            val wavFiles = mutableListOf<File>()
+            if (transcript.isBlank() && openAiService.hasCredentials()) {
+                wavFiles += WavAudioUtil.pcmToWavChunks(audioFile, audioFile.parentFile ?: app.cacheDir, meetingId.toString())
+                transcript = wavFiles.mapIndexed { index, file ->
+                    _uiState.value = _uiState.value.copy(
+                        recording = _uiState.value.recording.copy(message = "正在转写第 ${index + 1}/${wavFiles.size} 段")
+                    )
+                    openAiService.transcribeAudio(file)
+                }.joinToString("\n")
                 repository.saveTranscriptSegment(meetingId, transcript, 0, endedAt - startedAt)
             }
-            val bundle = summaryService.summarize(meetingCard, transcript)
+            if (transcript.isBlank()) {
+                transcript = "录音已保存，但还没有可用转写。请在设置里填写 OpenAI API Key 后重新录制。"
+                repository.saveTranscriptSegment(meetingId, transcript, 0, endedAt - startedAt)
+            }
+            val bundle = openAiService.summarize(meetingCard, transcript)
             repository.saveSummary(meetingId, bundle.summary, bundle.actions)
             audioFile.delete()
+            wavFiles.forEach { it.delete() }
             repository.updateMeetingCompleted(meetingId, endedAt, "completed", "", bundle.tags)
             _uiState.value = _uiState.value.copy(
                 recording = RecordingUiState(message = "会议已归档"),
@@ -336,4 +308,3 @@ class MainViewModel(application: Application) : ViewModel() {
         }
     }
 }
-
