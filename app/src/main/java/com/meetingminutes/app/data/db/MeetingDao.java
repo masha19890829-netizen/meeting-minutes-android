@@ -26,6 +26,9 @@ public interface MeetingDao {
     @Insert
     long insertActionItem(ActionItemEntity item);
 
+    @Update
+    void updateActionItem(ActionItemEntity item);
+
     @Insert
     long insertDocumentExport(DocumentExportEntity export);
 
@@ -55,6 +58,9 @@ public interface MeetingDao {
 
     @Query("SELECT * FROM action_items WHERE meetingId = :meetingId ORDER BY id ASC")
     List<ActionItemEntity> listActions(long meetingId);
+
+    @Query("SELECT * FROM action_items WHERE id = :actionId LIMIT 1")
+    ActionItemEntity getActionItem(long actionId);
 
     @Query("SELECT * FROM insight_reports ORDER BY createdAt DESC LIMIT 20")
     List<InsightReportEntity> listInsightReports();

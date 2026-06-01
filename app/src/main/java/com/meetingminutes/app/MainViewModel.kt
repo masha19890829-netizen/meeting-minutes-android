@@ -3,6 +3,8 @@ package com.meetingminutes.app
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioFormat
@@ -13,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.meetingminutes.app.calendar.CalendarSyncService
+import com.meetingminutes.app.data.ActionBoardItem
 import com.meetingminutes.app.data.CloudSettings
 import com.meetingminutes.app.data.MeetingCard
 import com.meetingminutes.app.data.MeetingDetail
@@ -43,6 +46,7 @@ data class AppUiState(
     val meetings: List<MeetingCard> = emptyList(),
     val selectedMeeting: MeetingDetail? = null,
     val selectedDayMeetings: List<MeetingCard> = emptyList(),
+    val actionBoard: List<ActionBoardItem> = emptyList(),
     val insights: List<com.meetingminutes.app.data.InsightReport> = emptyList(),
     val recording: RecordingUiState = RecordingUiState(),
     val settings: CloudSettings = CloudSettings(),
@@ -114,7 +118,7 @@ class MainViewModel(application: Application) : ViewModel() {
     }
 
     @SuppressLint("MissingPermission")
-    fun startRecording(title: String, realtime: Boolean) {
+    fun startRecording(title: String, realtime: Boolean, agenda: String = "") {
         if (_uiState.value.recording.isRecording) return
         recordingJob = viewModelScope.launch {
             val cleanTitle = title.ifBlank { "会议 ${System.currentTimeMillis()}" }
@@ -176,7 +180,7 @@ class MainViewModel(application: Application) : ViewModel() {
                 }
 
                 val endedAt = System.currentTimeMillis()
-                processRecording(meetingId, cleanTitle, startedAt, endedAt, audioFile)
+                processRecording(meetingId, cleanTitle, startedAt, endedAt, audioFile, agenda)
             }
         }
     }
@@ -199,6 +203,20 @@ class MainViewModel(application: Application) : ViewModel() {
             val file = app.appContainer.documentExportService.exportPdf(detail)
             context.startActivity(Intent.createChooser(app.appContainer.documentExportService.shareIntent(file), "分享 PDF"))
         }
+    }
+
+    fun copyMarkdown(context: Context, detail: MeetingDetail) {
+        copyText(context, "会议纪要", app.appContainer.documentExportService.markdownText(detail))
+        updateMessage("会议纪要已复制")
+    }
+
+    fun copyActions(context: Context, detail: MeetingDetail) {
+        val text = detail.actions
+            .filterNot { it.done }
+            .joinToString("\n") { "- ${it.owner}：${it.content}" }
+            .ifBlank { "暂无未完成待办" }
+        copyText(context, "会议待办", "${detail.meeting.title}\n$text")
+        updateMessage("会议待办已复制")
     }
 
     fun syncCalendar() {
@@ -239,6 +257,15 @@ class MainViewModel(application: Application) : ViewModel() {
         }
     }
 
+    fun toggleActionDone(actionId: Long, done: Boolean) {
+        viewModelScope.launch {
+            repository.setActionDone(actionId, done)
+            val selectedId = _uiState.value.selectedMeeting?.meeting?.id
+            refreshActionBoard()
+            if (selectedId != null) selectMeeting(selectedId)
+        }
+    }
+
     fun regenerateSummary(meetingId: Long) {
         viewModelScope.launch {
             val detail = repository.getMeetingDetail(meetingId) ?: return@launch
@@ -262,7 +289,8 @@ class MainViewModel(application: Application) : ViewModel() {
         title: String,
         startedAt: Long,
         endedAt: Long,
-        audioFile: File
+        audioFile: File,
+        agenda: String
     ) {
         _uiState.value = _uiState.value.copy(recording = _uiState.value.recording.copy(isRecording = false, message = "正在转写和总结"))
         val meetingCard = MeetingCard(meetingId, title, startedAt, endedAt, "processing", "", "")
@@ -277,6 +305,16 @@ class MainViewModel(application: Application) : ViewModel() {
                     repository.replaceTranscript(meetingId, lines)
                     transcript = lines.joinToString("\n") { "${it.speaker}：${it.text}" }
                 }
+            }
+            if (agenda.isNotBlank()) {
+                repository.saveTranscriptSegment(
+                    meetingId = meetingId,
+                    text = agendaForTranscript(agenda),
+                    startMs = -1,
+                    endMs = -1,
+                    speaker = "会前准备"
+                )
+                transcript = repository.buildTranscriptText(meetingId).ifBlank { transcript }
             }
             if (transcript.isBlank()) {
                 transcript = "录音已保存，但本地识别没有得到可用文字。可以在会议详情里重试，或在更安静的环境下重新录制。"
@@ -323,6 +361,7 @@ class MainViewModel(application: Application) : ViewModel() {
     private suspend fun refreshAll() {
         refreshMeetings()
         refreshDayMeetings()
+        refreshActionBoard()
         _uiState.value = _uiState.value.copy(insights = repository.listInsights(), settings = secretStore.load())
     }
 
@@ -334,8 +373,21 @@ class MainViewModel(application: Application) : ViewModel() {
         _uiState.value = _uiState.value.copy(selectedDayMeetings = repository.listMeetingsForDay(_uiState.value.selectedDay))
     }
 
+    private suspend fun refreshActionBoard() {
+        _uiState.value = _uiState.value.copy(actionBoard = repository.listActionBoard())
+    }
+
     private fun updateMessage(message: String) {
         _uiState.value = _uiState.value.copy(message = message)
+    }
+
+    private fun copyText(context: Context, label: String, text: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+    }
+
+    private fun agendaForTranscript(agenda: String): String {
+        return "会前目标/议程：\n${agenda.trim()}"
     }
 
     private fun audioLevel(buffer: ByteArray, size: Int): Float {

@@ -34,6 +34,13 @@ data class ActionItem(
     val done: Boolean = false
 )
 
+data class ActionBoardItem(
+    val action: ActionItem,
+    val meetingId: Long,
+    val meetingTitle: String,
+    val meetingStartedAt: Long
+)
+
 data class MeetingSummary(
     val summary: String,
     val decisions: String,

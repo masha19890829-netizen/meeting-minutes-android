@@ -88,9 +88,16 @@ class MeetingRepository(private val dao: MeetingDao) {
             dao.updateMeeting(meeting)
         }
 
-    suspend fun saveTranscriptSegment(meetingId: Long, text: String, startMs: Long, endMs: Long, finalSegment: Boolean = true) =
+    suspend fun saveTranscriptSegment(
+        meetingId: Long,
+        text: String,
+        startMs: Long,
+        endMs: Long,
+        finalSegment: Boolean = true,
+        speaker: String = "发言人"
+    ) =
         withContext(Dispatchers.IO) {
-            dao.insertTranscriptSegment(TranscriptSegmentEntity(meetingId, startMs, endMs, "发言人", text, finalSegment))
+            dao.insertTranscriptSegment(TranscriptSegmentEntity(meetingId, startMs, endMs, speaker, text, finalSegment))
         }
 
     suspend fun replaceTranscript(meetingId: Long, lines: List<TranscriptLine>) = withContext(Dispatchers.IO) {
@@ -126,6 +133,29 @@ class MeetingRepository(private val dao: MeetingDao) {
         dao.replaceActionItems(
             meetingId,
             actions.map { ActionItemEntity(meetingId, it.owner, it.content, it.dueAt, it.done) }
+        )
+    }
+
+    suspend fun setActionDone(actionId: Long, done: Boolean) = withContext(Dispatchers.IO) {
+        val item = dao.getActionItem(actionId) ?: return@withContext
+        item.done = done
+        dao.updateActionItem(item)
+    }
+
+    suspend fun listActionBoard(): List<ActionBoardItem> = withContext(Dispatchers.IO) {
+        dao.listMeetings().flatMap { meeting ->
+            dao.listActions(meeting.id).map { action ->
+                ActionBoardItem(
+                    action = action.toActionItem(),
+                    meetingId = meeting.id,
+                    meetingTitle = meeting.title,
+                    meetingStartedAt = meeting.startedAt
+                )
+            }
+        }.sortedWith(
+            compareBy<ActionBoardItem> { it.action.done }
+                .thenByDescending { it.meetingStartedAt }
+                .thenBy { it.action.id }
         )
     }
 

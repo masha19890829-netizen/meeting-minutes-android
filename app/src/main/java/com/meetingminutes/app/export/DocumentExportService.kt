@@ -18,7 +18,7 @@ class DocumentExportService(
 ) {
     suspend fun exportMarkdown(detail: MeetingDetail): File {
         val file = exportFile(detail.meeting.title, "md")
-        file.writeText(markdown(detail), Charsets.UTF_8)
+        file.writeText(markdownText(detail), Charsets.UTF_8)
         repository.saveExport(detail.meeting.id, "markdown", file.absolutePath)
         return file
     }
@@ -43,7 +43,7 @@ class DocumentExportService(
         var y = 54f
         canvas.drawText(detail.meeting.title, 36f, y, titlePaint)
         y += 32f
-        wrap(markdown(detail), 70).forEach { line ->
+        wrap(markdownText(detail), 70).forEach { line ->
             if (y > pageHeight - 48) {
                 document.finishPage(page)
                 pageNumber += 1
@@ -75,7 +75,7 @@ class DocumentExportService(
         return File(dir, "${safe}_${System.currentTimeMillis()}.$extension")
     }
 
-    private fun markdown(detail: MeetingDetail): String {
+    fun markdownText(detail: MeetingDetail): String {
         val summary = detail.summary?.markdown
         if (!summary.isNullOrBlank()) return summary
         val time = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date(detail.meeting.startedAt))

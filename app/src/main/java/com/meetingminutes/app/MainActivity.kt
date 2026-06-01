@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.EventBusy
@@ -46,6 +47,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -77,6 +79,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.meetingminutes.app.data.CloudSettings
+import com.meetingminutes.app.data.ActionBoardItem
 import com.meetingminutes.app.data.MeetingCard
 import com.meetingminutes.app.data.MeetingDetail
 import java.text.SimpleDateFormat
@@ -101,9 +104,20 @@ private enum class Screen(val title: String) {
     Record("录音"),
     Library("库"),
     Calendar("日历"),
-    Insights("洞察"),
+    Insights("工作台"),
     Settings("设置")
 }
+
+private data class RecordingLaunch(val title: String, val backgroundSafe: Boolean, val agenda: String)
+
+private data class MeetingTemplate(val name: String, val titlePrefix: String, val agenda: String)
+
+private val meetingTemplates = listOf(
+    MeetingTemplate("周会", "周会", "1. 上周完成\n2. 本周目标\n3. 风险阻塞\n4. 需要谁支持"),
+    MeetingTemplate("评审", "方案评审", "1. 要评审的方案\n2. 决策标准\n3. 争议点\n4. 最终结论和负责人"),
+    MeetingTemplate("复盘", "项目复盘", "1. 目标是否达成\n2. 做得好的地方\n3. 问题根因\n4. 下次怎么改"),
+    MeetingTemplate("1对1", "1对1沟通", "1. 当前状态\n2. 卡点和压力\n3. 需要的资源\n4. 下一步行动")
+)
 
 @Composable
 private fun MeetingMinutesTheme(content: @Composable () -> Unit) {
@@ -124,11 +138,11 @@ private fun MeetingMinutesApp(viewModel: MainViewModel) {
     val state by viewModel.uiState.collectAsState()
     var screen by remember { mutableStateOf(Screen.Record) }
     val context = LocalContext.current
-    var pendingStart by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var pendingStart by remember { mutableStateOf<RecordingLaunch?>(null) }
     val recordPermissions = MainViewModel.requiredRecordingPermissions()
     val recordingLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         val allowed = recordPermissions.all { result[it] == true || MainViewModel.hasPermissions(context, arrayOf(it)) }
-        if (allowed) pendingStart?.let { viewModel.startRecording(it.first, it.second) }
+        if (allowed) pendingStart?.let { viewModel.startRecording(it.title, it.backgroundSafe, it.agenda) }
         pendingStart = null
     }
     val calendarPermissions = remember {
@@ -184,11 +198,11 @@ private fun MeetingMinutesApp(viewModel: MainViewModel) {
             when (screen) {
                 Screen.Record -> RecordScreen(
                     state = state,
-                    onStart = { title, realtime ->
+                    onStart = { title, realtime, agenda ->
                         if (MainViewModel.hasPermissions(context, recordPermissions)) {
-                            viewModel.startRecording(title, realtime)
+                            viewModel.startRecording(title, realtime, agenda)
                         } else {
-                            pendingStart = title to realtime
+                            pendingStart = RecordingLaunch(title, realtime, agenda)
                             recordingLauncher.launch(recordPermissions)
                         }
                     },
@@ -206,7 +220,7 @@ private fun MeetingMinutesApp(viewModel: MainViewModel) {
                         }
                     }
                 )
-                Screen.Insights -> InsightsScreen(state)
+                Screen.Insights -> WorkbenchScreen(state, viewModel)
                 Screen.Settings -> SettingsScreen(
                     settings = state.settings,
                     onSave = viewModel::saveSettings,
@@ -246,10 +260,11 @@ private fun MeetingMinutesApp(viewModel: MainViewModel) {
 @Composable
 private fun RecordScreen(
     state: AppUiState,
-    onStart: (String, Boolean) -> Unit,
+    onStart: (String, Boolean, String) -> Unit,
     onStop: () -> Unit
 ) {
     var title by remember { mutableStateOf("会议 ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date())}") }
+    var agenda by remember { mutableStateOf("") }
     var backgroundSafe by remember { mutableStateOf(true) }
     var confirmStop by remember { mutableStateOf(false) }
     Column(
@@ -266,6 +281,39 @@ private fun RecordScreen(
             label = { Text("会议标题") },
             singleLine = true
         )
+        Spacer(Modifier.height(12.dp))
+        CardBlock(title = "会议模板") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                meetingTemplates.take(2).forEach { template ->
+                    AssistChip(
+                        onClick = {
+                            title = "${template.titlePrefix} ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date())}"
+                            agenda = template.agenda
+                        },
+                        label = { Text(template.name) }
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                meetingTemplates.drop(2).forEach { template ->
+                    AssistChip(
+                        onClick = {
+                            title = "${template.titlePrefix} ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date())}"
+                            agenda = template.agenda
+                        },
+                        label = { Text(template.name) }
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = agenda,
+                onValueChange = { agenda = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("会前目标/议程") },
+                minLines = 3,
+                maxLines = 5
+            )
+        }
         Spacer(Modifier.height(12.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -288,7 +336,7 @@ private fun RecordScreen(
         ) {
             FilledIconButton(
                 modifier = Modifier.size(124.dp),
-                onClick = { if (state.recording.isRecording) confirmStop = true else onStart(title, backgroundSafe) }
+                onClick = { if (state.recording.isRecording) confirmStop = true else onStart(title, backgroundSafe, agenda) }
             ) {
                 Icon(
                     imageVector = if (state.recording.isRecording) Icons.Default.Stop else Icons.Default.Mic,
@@ -378,24 +426,72 @@ private fun CalendarScreen(state: AppUiState, viewModel: MainViewModel, onSync: 
 }
 
 @Composable
-private fun InsightsScreen(state: AppUiState) {
+private fun WorkbenchScreen(state: AppUiState, viewModel: MainViewModel) {
+    val pendingActions = state.actionBoard.filterNot { it.action.done }
+    val completedActions = state.actionBoard.filter { it.action.done }.take(4)
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(state.insights, key = { it.id }) { insight ->
-            CardBlock(title = insight.title) {
-                Text(insight.content)
-            }
-        }
-        if (state.insights.isEmpty()) {
-            item {
-                CardBlock(title = "暂无洞察") {
-                    Text("完成会议后，APP 会自动沉淀每日会议趋势。")
+        item {
+            CardBlock(title = "待办工作台") {
+                if (pendingActions.isEmpty()) {
+                    Text("暂无未完成待办")
+                } else {
+                    pendingActions.take(12).forEach { item ->
+                        ActionBoardRow(item = item, onCheckedChange = { checked ->
+                            viewModel.toggleActionDone(item.action.id, checked)
+                        })
+                    }
+                }
+                if (completedActions.isNotEmpty()) {
+                    Text("已完成", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    completedActions.forEach { item ->
+                        ActionBoardRow(item = item, onCheckedChange = { checked ->
+                            viewModel.toggleActionDone(item.action.id, checked)
+                        })
+                    }
                 }
             }
+        }
+        item {
+            CardBlock(title = "会议洞察") {
+                if (state.insights.isEmpty()) {
+                    Text("暂无洞察")
+                } else {
+                    state.insights.take(3).forEach { insight ->
+                        Text(insight.title, fontWeight = FontWeight.Bold)
+                        Text(insight.content, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionBoardRow(item: ActionBoardItem, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        Checkbox(
+            checked = item.action.done,
+            onCheckedChange = onCheckedChange
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(top = 10.dp)
+        ) {
+            Text(item.action.content, fontWeight = if (item.action.done) FontWeight.Normal else FontWeight.Medium)
+            Text(
+                "${item.action.owner} · ${item.meetingTitle} · ${formatDate(item.meetingStartedAt)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
         }
     }
 }
@@ -583,10 +679,28 @@ private fun DetailDialog(
                     Text(it.decisions.ifBlank { "暂无" })
                 }
                 Text("待办", fontWeight = FontWeight.Bold)
-                if (detail.actions.isEmpty()) Text("暂无") else detail.actions.forEach { Text("• ${it.content}") }
+                if (detail.actions.isEmpty()) {
+                    Text("暂无")
+                } else {
+                    detail.actions.forEach { action ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = action.done,
+                                onCheckedChange = { checked -> viewModel.toggleActionDone(action.id, checked) }
+                            )
+                            Text("${action.owner}：${action.content}", modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
                 Text("原始转写", fontWeight = FontWeight.Bold)
                 detail.transcript.forEach { Text("${it.speaker}：${it.text}") }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(onClick = { viewModel.copyMarkdown(context, detail) }) {
+                        Icon(Icons.Default.ContentCopy, "复制纪要")
+                    }
+                    IconButton(onClick = { viewModel.copyActions(context, detail) }) {
+                        Icon(Icons.Default.Description, "复制待办")
+                    }
                     IconButton(onClick = { viewModel.exportMarkdown(context, detail) }) {
                         Icon(Icons.Default.Article, "分享 Markdown")
                     }
